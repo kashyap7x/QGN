@@ -416,22 +416,35 @@ class PSPBilinear(nn.Module):
 # QuadNet based GCN, bilinear upsample
 class QuadBilinear(nn.Module):
     def __init__(self, num_class=150, segSize=384,
-                 channel_dims = (3, 64, 256, 512, 1024, 2048), gcn_out = 256,
+                 channel_dims = (3, 64, 256, 512, 1024, 2048), gcn_out = 128,
                  use_softmax=False):
         super(QuadBilinear, self).__init__()
         self.segSize = segSize
         self.use_softmax = use_softmax
 
+        # channel compression
+        self.compress_s_384 = nn.Conv2d(channel_dims[5], gcn_out*9//4, 1, 1, 0, bias=False)
+        self.compress_s_128 = nn.Conv2d(channel_dims[5], gcn_out, 1, 1, 0, bias=False)
+        self.compress_s_64 = nn.Conv2d(channel_dims[5], gcn_out, 1, 1, 0, bias=False)
+        self.compress_s_32 = nn.Conv2d(channel_dims[5], gcn_out, 1, 1, 0, bias=False)
+        self.compress_s_16 = nn.Conv2d(channel_dims[4], gcn_out, 1, 1, 0, bias=False)
+        self.compress_s_8 = nn.Conv2d(channel_dims[3], gcn_out, 1, 1, 0, bias=False)
+        self.compress_s_4 = nn.Conv2d(channel_dims[2], gcn_out, 1, 1, 0, bias=False)
+        self.compress_s_2 = nn.Conv2d(channel_dims[1], gcn_out, 1, 1, 0, bias=False)
+        self.compress_s = nn.Conv2d(channel_dims[0], gcn_out, 1, 1, 0, bias=False)
+
         # graph convolutions
-        self.conv_s_32 = nn.Conv2d(channel_dims[5] + 4 * channel_dims[4], gcn_out, 1, 1, 0, bias=False)
-        self.conv_s_16 = nn.Conv2d(gcn_out // 4 + channel_dims[4] + 4 * channel_dims[3], gcn_out, 1, 1, 0, bias=False)
-        self.conv_s_8 = nn.Conv2d(gcn_out // 4 + channel_dims[3] + 4 * channel_dims[2], gcn_out, 1, 1, 0, bias=False)
-        self.conv_s_4 = nn.Conv2d(gcn_out // 4 + channel_dims[2] + 4 * channel_dims[1], gcn_out, 1, 1, 0, bias=False)
-        self.conv_s_2 = nn.Conv2d(gcn_out // 4 + channel_dims[1] + 4 * channel_dims[0], gcn_out, 1, 1, 0, bias=False)
-        self.conv_s = nn.Conv2d(gcn_out // 4 + channel_dims[0], gcn_out, 1, 1, 0, bias=False)
+        self.conv_s_128 = nn.Conv2d(gcn_out // 4 + gcn_out + 4 * gcn_out, gcn_out, 1, 1, 0, bias=False)
+        self.conv_s_64 = nn.Conv2d(gcn_out // 4 + gcn_out + 4 * gcn_out, gcn_out, 1, 1, 0, bias=False)
+        self.conv_s_32 = nn.Conv2d(gcn_out // 4 + gcn_out + 4 * gcn_out, gcn_out, 1, 1, 0, bias=False)
+        self.conv_s_16 = nn.Conv2d(gcn_out // 4 + gcn_out + 4 * gcn_out, gcn_out, 1, 1, 0, bias=False)
+        self.conv_s_8 = nn.Conv2d(gcn_out // 4 + gcn_out + 4 * gcn_out, gcn_out, 1, 1, 0, bias=False)
+        self.conv_s_4 = nn.Conv2d(gcn_out // 4 + gcn_out + 4 * gcn_out, gcn_out, 1, 1, 0, bias=False)
+        self.conv_s_2 = nn.Conv2d(gcn_out // 4 + gcn_out + 4 * gcn_out, gcn_out, 1, 1, 0, bias=False)
+        self.conv_s = nn.Conv2d(gcn_out // 4 + gcn_out, gcn_out, 1, 1, 0, bias=False)
 
         # last conv
-        self.conv_last = nn.Conv2d(gcn_out, num_class, 1, 1, 0, bias=False)
+        self.conv_last_s = nn.Conv2d(gcn_out, num_class, 1, 1, 0, bias=False)
 
     def forward(self, ins, segSize=None):
         if segSize is None:
@@ -441,16 +454,38 @@ class QuadBilinear(nn.Module):
 
         (s, s_2, s_4, s_8, s_16, s_32) = ins
 
-        ps = nn.PixelShuffle(2)
+        # approximate root nodes with average pooling
+        av = nn.AvgPool2d(2, 2)
+        av3 = nn.AvgPool2d(3, 3)
+        s_64 = av(s_32)
+        s_128 = av(s_64)
+        s_384 = av3(s_128)
 
-        x = self.conv_s_32(torch.cat([s_32, gather(s_16)], 1))
+        # channel compression for graph convolution features
+        s_384 = self.compress_s_384(s_384)
+        s_128 = self.compress_s_128(s_128)
+        s_64 = self.compress_s_64(s_64)
+        s_32 = self.compress_s_32(s_32)
+        s_16 = self.compress_s_16(s_16)
+        s_8 = self.compress_s_8(s_8)
+        s_4 = self.compress_s_4(s_4)
+        s_2 = self.compress_s_2(s_2)
+        s = self.compress_s(s)
+
+        # graph convolutions with pixel shuffle and gather
+        ps = nn.PixelShuffle(2)
+        ps3 = nn.PixelShuffle(3)
+        x = self.conv_s_128(torch.cat([ps3(s_384), s_128, gather(s_64)], 1))
+        x = self.conv_s_64(torch.cat([ps(x), s_64, gather(s_32)], 1))
+        x = self.conv_s_32(torch.cat([ps(x), s_32, gather(s_16)], 1))
         x = self.conv_s_16(torch.cat([ps(x), s_16, gather(s_8)], 1))
         x = self.conv_s_8(torch.cat([ps(x), s_8, gather(s_4)], 1))
         x = self.conv_s_4(torch.cat([ps(x), s_4, gather(s_2)], 1))
         x = self.conv_s_2(torch.cat([ps(x), s_2, gather(s)], 1))
         x = self.conv_s(torch.cat([ps(x), s], 1))
 
-        x = self.conv_last(x)
+        # label prediction from graph node representations
+        x = self.conv_last_s(x)
 
         if not (x.size(2) == segSize[0] and x.size(3) == segSize[1]):
             x = nn.functional.upsample(x, size=segSize, mode='bilinear')
