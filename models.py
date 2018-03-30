@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torchvision
 import resnet
-
+from utils import gather
 
 class ModelBuilder():
     # custom weights initialization
@@ -56,6 +56,9 @@ class ModelBuilder():
             orig_resnet = resnet.__dict__['resnet50'](pretrained=pretrained)
             net_encoder = ResnetDilated(orig_resnet,
                                         dilate_scale=16)
+        elif arch == 'resnet50_quad':
+            orig_resnet = resnet.__dict__['resnet50'](pretrained=pretrained)
+            net_encoder = ResnetQuad(orig_resnet)
         else:
             raise Exception('Architecture undefined!')
 
@@ -81,6 +84,10 @@ class ModelBuilder():
         elif arch == 'psp_bilinear':
             net_decoder = PSPBilinear(num_class=num_class,
                                       fc_dim=fc_dim,
+                                      segSize=segSize,
+                                      use_softmax=use_softmax)
+        elif arch == 'quad_bilinear':
+            net_decoder = QuadBilinear(num_class=num_class,
                                       segSize=segSize,
                                       use_softmax=use_softmax)
         else:
@@ -275,7 +282,8 @@ class ResnetQuad(nn.Module):
         x = self.layer4(x)
         s_32 = x
 
-        return s, s_2, s_4, s_8, s_16, s_32
+        outs = (s, s_2, s_4, s_8, s_16, s_32)
+        return outs
 
 
 # last conv, bilinear upsample
@@ -407,24 +415,40 @@ class PSPBilinear(nn.Module):
 
 # QuadNet based GCN, bilinear upsample
 class QuadBilinear(nn.Module):
-    def __init__(self, num_class=150, fc_dim=4096, segSize=384,
-                 channel_dims = (3, 64, 64, 128, 256, 512), gcn_out = 64,
+    def __init__(self, num_class=150, segSize=384,
+                 channel_dims = (3, 64, 256, 512, 1024, 2048), gcn_out = 256,
                  use_softmax=False):
         super(QuadBilinear, self).__init__()
         self.segSize = segSize
         self.use_softmax = use_softmax
 
         # graph convolutions
-        self.conv_s32 = nn.Conv2d(fc_dim, num_class, 1, 1, 0, bias=False)
-        self.conv_last = nn.Conv2d(fc_dim, num_class, 1, 1, 0, bias=False)
-        # last conv
-        self.conv_last = nn.Conv2d(fc_dim, num_class, 1, 1, 0, bias=False)
+        self.conv_s_32 = nn.Conv2d(channel_dims[5] + 4 * channel_dims[4], gcn_out, 1, 1, 0, bias=False)
+        self.conv_s_16 = nn.Conv2d(gcn_out // 4 + channel_dims[4] + 4 * channel_dims[3], gcn_out, 1, 1, 0, bias=False)
+        self.conv_s_8 = nn.Conv2d(gcn_out // 4 + channel_dims[3] + 4 * channel_dims[2], gcn_out, 1, 1, 0, bias=False)
+        self.conv_s_4 = nn.Conv2d(gcn_out // 4 + channel_dims[2] + 4 * channel_dims[1], gcn_out, 1, 1, 0, bias=False)
+        self.conv_s_2 = nn.Conv2d(gcn_out // 4 + channel_dims[1] + 4 * channel_dims[0], gcn_out, 1, 1, 0, bias=False)
+        self.conv_s = nn.Conv2d(gcn_out // 4 + channel_dims[0], gcn_out, 1, 1, 0, bias=False)
 
-    def forward(self, x, segSize=None):
+        # last conv
+        self.conv_last = nn.Conv2d(gcn_out, num_class, 1, 1, 0, bias=False)
+
+    def forward(self, ins, segSize=None):
         if segSize is None:
             segSize = (self.segSize, self.segSize)
         elif isinstance(segSize, int):
             segSize = (segSize, segSize)
+
+        (s, s_2, s_4, s_8, s_16, s_32) = ins
+
+        ps = nn.PixelShuffle(2)
+
+        x = self.conv_s_32(torch.cat([s_32, gather(s_16)], 1))
+        x = self.conv_s_16(torch.cat([ps(x), s_16, gather(s_8)], 1))
+        x = self.conv_s_8(torch.cat([ps(x), s_8, gather(s_4)], 1))
+        x = self.conv_s_4(torch.cat([ps(x), s_4, gather(s_2)], 1))
+        x = self.conv_s_2(torch.cat([ps(x), s_2, gather(s)], 1))
+        x = self.conv_s(torch.cat([ps(x), s], 1))
 
         x = self.conv_last(x)
 

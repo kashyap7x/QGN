@@ -132,13 +132,16 @@ def intersectionAndUnion(batch_data, pred, numClass):
 
 def gather(a, window=(2, 2)):
     A = np.arange(torch.numel(a)).reshape(a.size())
-    channels = A.shape[0]
-    block = (channels, window[0], window[1])
-    shape = (1, A.shape[1]// block[1], A.shape[2]// block[2])+ block
-    strides = (block[0] * A.strides[0], block[1] * A.strides[1], block[2] * A.strides[2])+ A.strides
-    indices = ast(A, shape=shape, strides=strides).T.reshape(channels * block[1] * block[2], A.shape[1] // block[1], A.shape[2] // block[2])
+    batch = A.shape[0]
+    channels = A.shape[1]
+    block = (batch, channels, window[0], window[1])
+    shape = (1, 1, A.shape[2]// block[2], A.shape[3]// block[3])+ block
+    strides = (block[0] * A.strides[0], block[1] * A.strides[1], block[2] * A.strides[2], block[3] * A.strides[3])+ A.strides
+    indices = ast(A, shape=shape, strides=strides).T.reshape(batch, channels * block[2] * block[3], A.shape[2] // block[2], A.shape[3] // block[3])
     a_tensor = a.data if isinstance(a, Variable) else a
-    a_gathered = torch.take(a_tensor, torch.from_numpy(indices).long())
+    ind_tensor = torch.from_numpy(indices).long()
     if torch.cuda.is_available():
-        a_gathered = a_gathered.cuda()
+        a_tensor = a_tensor.cuda()
+        ind_tensor = ind_tensor.cuda()
+    a_gathered = torch.take(a_tensor, ind_tensor)
     return Variable(a_gathered) if isinstance(a, Variable) else a_gathered

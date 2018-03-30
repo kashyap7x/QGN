@@ -307,9 +307,9 @@ if __name__ == '__main__':
     # Model related arguments
     parser.add_argument('--id', default='baseline',
                         help="a name for identifying the model")
-    parser.add_argument('--arch_encoder', default='resnet50',
+    parser.add_argument('--arch_encoder', default='resnet50_quad',
                         help="architecture of net_encoder")
-    parser.add_argument('--arch_decoder', default='c1_bilinear',
+    parser.add_argument('--arch_decoder', default='quad_bilinear',
                         help="architecture of net_decoder")
     parser.add_argument('--weights_encoder', default='',
                         help="weights to finetune net_encoder")
@@ -331,7 +331,7 @@ if __name__ == '__main__':
     # optimization related arguments
     parser.add_argument('--num_gpus', default=1, type=int,
                         help='number of gpus to use')
-    parser.add_argument('--batch_size_per_gpu', default=4, type=int,
+    parser.add_argument('--batch_size_per_gpu', default=2, type=int,
                         help='input batch size')
     parser.add_argument('--num_epoch', default=100, type=int,
                         help='epochs to train for')
@@ -348,7 +348,7 @@ if __name__ == '__main__':
                         help='fix bn params')
 
     # Data related arguments
-    parser.add_argument('--num_val', default=32, type=int,
+    parser.add_argument('--num_val', default=16, type=int,
                         help='number of images to evaluate')
     parser.add_argument('--num_class', default=150, type=int,
                         help='number of classes')

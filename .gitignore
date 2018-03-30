@@ -1,4 +1,4 @@
-./data/ADEChallengeData2016
-./vis
-./ckpt
-./pretrained
+*.png
+*.pth
+*.pyc
+*.jpg
