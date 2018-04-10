@@ -45,6 +45,9 @@ class ModelBuilder():
             orig_resnet = resnet.__dict__['resnet34'](pretrained=pretrained)
             net_encoder = ResnetDilated(orig_resnet,
                                         dilate_scale=16)
+        elif arch == 'resnet34_quad':
+            orig_resnet = resnet.__dict__['resnet34'](pretrained=pretrained)
+            net_encoder = ResnetQuad(orig_resnet)
         elif arch == 'resnet50':
             orig_resnet = resnet.__dict__['resnet50'](pretrained=pretrained)
             net_encoder = Resnet(orig_resnet)
@@ -416,14 +419,18 @@ class PSPBilinear(nn.Module):
 # QuadNet based GCN, bilinear upsample
 class QuadBilinear(nn.Module):
     def __init__(self, num_class=150, segSize=384,
-                 channel_dims = (3, 64, 256, 512, 1024, 2048), gcn_out = 128,
-                 use_softmax=False):
+                 channel_dims = (3, 64, 64, 128, 256, 512), gcn_out = 128,
+                 use_softmax=False, pixelShuffle=False):
         super(QuadBilinear, self).__init__()
         self.segSize = segSize
         self.use_softmax = use_softmax
+        self.pixelShuffle = pixelShuffle
 
         # channel compression
-        self.compress_s_384 = nn.Conv2d(channel_dims[5], gcn_out*9//4, 1, 1, 0, bias=False)
+        if self.pixelShuffle:
+            self.compress_s_384 = nn.Conv2d(channel_dims[5], gcn_out*9//4, 1, 1, 0, bias=False)
+        else:
+            self.compress_s_384 = nn.Conv2d(channel_dims[5], gcn_out, 1, 1, 0, bias=False)
         self.compress_s_128 = nn.Conv2d(channel_dims[5], gcn_out, 1, 1, 0, bias=False)
         self.compress_s_64 = nn.Conv2d(channel_dims[5], gcn_out, 1, 1, 0, bias=False)
         self.compress_s_32 = nn.Conv2d(channel_dims[5], gcn_out, 1, 1, 0, bias=False)
@@ -434,14 +441,24 @@ class QuadBilinear(nn.Module):
         self.compress_s = nn.Conv2d(channel_dims[0], gcn_out, 1, 1, 0, bias=False)
 
         # graph convolutions
-        self.conv_s_128 = nn.Conv2d(gcn_out // 4 + gcn_out + 4 * gcn_out, gcn_out, 1, 1, 0, bias=False)
-        self.conv_s_64 = nn.Conv2d(gcn_out // 4 + gcn_out + 4 * gcn_out, gcn_out, 1, 1, 0, bias=False)
-        self.conv_s_32 = nn.Conv2d(gcn_out // 4 + gcn_out + 4 * gcn_out, gcn_out, 1, 1, 0, bias=False)
-        self.conv_s_16 = nn.Conv2d(gcn_out // 4 + gcn_out + 4 * gcn_out, gcn_out, 1, 1, 0, bias=False)
-        self.conv_s_8 = nn.Conv2d(gcn_out // 4 + gcn_out + 4 * gcn_out, gcn_out, 1, 1, 0, bias=False)
-        self.conv_s_4 = nn.Conv2d(gcn_out // 4 + gcn_out + 4 * gcn_out, gcn_out, 1, 1, 0, bias=False)
-        self.conv_s_2 = nn.Conv2d(gcn_out // 4 + gcn_out + 4 * gcn_out, gcn_out, 1, 1, 0, bias=False)
-        self.conv_s = nn.Conv2d(gcn_out // 4 + gcn_out, gcn_out, 1, 1, 0, bias=False)
+        if self.pixelShuffle:
+            self.conv_s_128 = nn.Conv2d(gcn_out // 4 + gcn_out + 4 * gcn_out, gcn_out, 1, 1, 0, bias=False)
+            self.conv_s_64 = nn.Conv2d(gcn_out // 4 + gcn_out + 4 * gcn_out, gcn_out, 1, 1, 0, bias=False)
+            self.conv_s_32 = nn.Conv2d(gcn_out // 4 + gcn_out + 4 * gcn_out, gcn_out, 1, 1, 0, bias=False)
+            self.conv_s_16 = nn.Conv2d(gcn_out // 4 + gcn_out + 4 * gcn_out, gcn_out, 1, 1, 0, bias=False)
+            self.conv_s_8 = nn.Conv2d(gcn_out // 4 + gcn_out + 4 * gcn_out, gcn_out, 1, 1, 0, bias=False)
+            self.conv_s_4 = nn.Conv2d(gcn_out // 4 + gcn_out + 4 * gcn_out, gcn_out, 1, 1, 0, bias=False)
+            self.conv_s_2 = nn.Conv2d(gcn_out // 4 + gcn_out + 4 * gcn_out, gcn_out, 1, 1, 0, bias=False)
+            self.conv_s = nn.Conv2d(gcn_out // 4 + gcn_out, gcn_out, 1, 1, 0, bias=False)
+        else:
+            self.conv_s_128 = nn.Conv2d(gcn_out + gcn_out + 4 * gcn_out, gcn_out, 1, 1, 0, bias=False)
+            self.conv_s_64 = nn.Conv2d(gcn_out + gcn_out + 4 * gcn_out, gcn_out, 1, 1, 0, bias=False)
+            self.conv_s_32 = nn.Conv2d(gcn_out + gcn_out + 4 * gcn_out, gcn_out, 1, 1, 0, bias=False)
+            self.conv_s_16 = nn.Conv2d(gcn_out + gcn_out + 4 * gcn_out, gcn_out, 1, 1, 0, bias=False)
+            self.conv_s_8 = nn.Conv2d(gcn_out + gcn_out + 4 * gcn_out, gcn_out, 1, 1, 0, bias=False)
+            self.conv_s_4 = nn.Conv2d(gcn_out + gcn_out + 4 * gcn_out, gcn_out, 1, 1, 0, bias=False)
+            self.conv_s_2 = nn.Conv2d(gcn_out + gcn_out + 4 * gcn_out, gcn_out, 1, 1, 0, bias=False)
+            self.conv_s = nn.Conv2d(gcn_out + gcn_out, gcn_out, 1, 1, 0, bias=False)
 
         # last conv
         self.conv_last_s = nn.Conv2d(gcn_out, num_class, 1, 1, 0, bias=False)
@@ -473,8 +490,13 @@ class QuadBilinear(nn.Module):
         s = self.compress_s(s)
 
         # graph convolutions with pixel shuffle and gather
-        ps = nn.PixelShuffle(2)
-        ps3 = nn.PixelShuffle(3)
+        if self.pixelShuffle:
+            ps = nn.PixelShuffle(2)
+            ps3 = nn.PixelShuffle(3)
+        else:
+            ps = nn.Upsample(scale_factor=2)
+            ps3 = nn.Upsample(scale_factor=3)
+
         x = self.conv_s_128(torch.cat([ps3(s_384), s_128, gather(s_64)], 1))
         x = self.conv_s_64(torch.cat([ps(x), s_64, gather(s_32)], 1))
         x = self.conv_s_32(torch.cat([ps(x), s_32, gather(s_16)], 1))

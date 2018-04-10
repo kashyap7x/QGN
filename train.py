@@ -307,7 +307,7 @@ if __name__ == '__main__':
     # Model related arguments
     parser.add_argument('--id', default='baseline',
                         help="a name for identifying the model")
-    parser.add_argument('--arch_encoder', default='resnet50_quad',
+    parser.add_argument('--arch_encoder', default='resnet34_quad',
                         help="architecture of net_encoder")
     parser.add_argument('--arch_decoder', default='quad_bilinear',
                         help="architecture of net_decoder")
@@ -315,7 +315,7 @@ if __name__ == '__main__':
                         help="weights to finetune net_encoder")
     parser.add_argument('--weights_decoder', default='',
                         help="weights to finetune net_decoder")
-    parser.add_argument('--fc_dim', default=2048, type=int,
+    parser.add_argument('--fc_dim', default=512, type=int,
                         help='number of features between encoder and decoder')
 
     # Path related arguments
@@ -337,18 +337,18 @@ if __name__ == '__main__':
                         help='epochs to train for')
     parser.add_argument('--optim', default='SGD', help='optimizer')
     parser.add_argument('--lr_encoder', default=1e-3, type=float, help='LR')
-    parser.add_argument('--lr_decoder', default=1e-2, type=float, help='LR')
+    parser.add_argument('--lr_decoder', default=1e-1, type=float, help='LR')
     parser.add_argument('--lr_pow', default=0.9, type=float,
                         help='power in poly to drop LR')
     parser.add_argument('--beta1', default=0.9, type=float,
                         help='momentum for sgd, beta1 for adam')
     parser.add_argument('--weight_decay', default=1e-4, type=float,
                         help='weights regularizer')
-    parser.add_argument('--fix_bn', default=0, type=int,
+    parser.add_argument('--fix_bn', default=1, type=int,
                         help='fix bn params')
 
     # Data related arguments
-    parser.add_argument('--num_val', default=16, type=int,
+    parser.add_argument('--num_val', default=64, type=int,
                         help='number of images to evaluate')
     parser.add_argument('--num_class', default=150, type=int,
                         help='number of classes')
