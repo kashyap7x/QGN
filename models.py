@@ -420,19 +420,21 @@ class PSPBilinear(nn.Module):
 class QuadBilinear(nn.Module):
     def __init__(self, num_class=150, segSize=384,
                  channel_dims = (3, 64, 64, 128, 256, 512), gcn_out = 128,
-                 use_softmax=False, pixelShuffle=False):
+                 use_softmax=False, extend_depth=False, pixelShuffle=False):
         super(QuadBilinear, self).__init__()
         self.segSize = segSize
         self.use_softmax = use_softmax
+        self.extend_depth = extend_depth
         self.pixelShuffle = pixelShuffle
 
         # channel compression
-        if self.pixelShuffle:
-            self.compress_s_384 = nn.Conv2d(channel_dims[5], gcn_out*9//4, 1, 1, 0, bias=False)
-        else:
-            self.compress_s_384 = nn.Conv2d(channel_dims[5], gcn_out, 1, 1, 0, bias=False)
-        self.compress_s_128 = nn.Conv2d(channel_dims[5], gcn_out, 1, 1, 0, bias=False)
-        self.compress_s_64 = nn.Conv2d(channel_dims[5], gcn_out, 1, 1, 0, bias=False)
+        if self.extend_depth:
+            if self.pixelShuffle:
+                self.compress_s_384 = nn.Conv2d(channel_dims[5], gcn_out*9//4, 1, 1, 0, bias=False)
+            else:
+                self.compress_s_384 = nn.Conv2d(channel_dims[5], gcn_out, 1, 1, 0, bias=False)
+            self.compress_s_128 = nn.Conv2d(channel_dims[5], gcn_out, 1, 1, 0, bias=False)
+            self.compress_s_64 = nn.Conv2d(channel_dims[5], gcn_out, 1, 1, 0, bias=False)
         self.compress_s_32 = nn.Conv2d(channel_dims[5], gcn_out, 1, 1, 0, bias=False)
         self.compress_s_16 = nn.Conv2d(channel_dims[4], gcn_out, 1, 1, 0, bias=False)
         self.compress_s_8 = nn.Conv2d(channel_dims[3], gcn_out, 1, 1, 0, bias=False)
@@ -442,18 +444,20 @@ class QuadBilinear(nn.Module):
 
         # graph convolutions
         if self.pixelShuffle:
-            self.conv_s_128 = nn.Conv2d(gcn_out // 4 + gcn_out + 4 * gcn_out, gcn_out, 1, 1, 0, bias=False)
-            self.conv_s_64 = nn.Conv2d(gcn_out // 4 + gcn_out + 4 * gcn_out, gcn_out, 1, 1, 0, bias=False)
-            self.conv_s_32 = nn.Conv2d(gcn_out // 4 + gcn_out + 4 * gcn_out, gcn_out, 1, 1, 0, bias=False)
+            if self.extend_depth:
+                self.conv_s_128 = nn.Conv2d(gcn_out // 4 + gcn_out + 4 * gcn_out, gcn_out, 1, 1, 0, bias=False)
+                self.conv_s_64 = nn.Conv2d(gcn_out // 4 + gcn_out + 4 * gcn_out, gcn_out, 1, 1, 0, bias=False)
+                self.conv_s_32 = nn.Conv2d(gcn_out // 4 + gcn_out + 4 * gcn_out, gcn_out, 1, 1, 0, bias=False)
             self.conv_s_16 = nn.Conv2d(gcn_out // 4 + gcn_out + 4 * gcn_out, gcn_out, 1, 1, 0, bias=False)
             self.conv_s_8 = nn.Conv2d(gcn_out // 4 + gcn_out + 4 * gcn_out, gcn_out, 1, 1, 0, bias=False)
             self.conv_s_4 = nn.Conv2d(gcn_out // 4 + gcn_out + 4 * gcn_out, gcn_out, 1, 1, 0, bias=False)
             self.conv_s_2 = nn.Conv2d(gcn_out // 4 + gcn_out + 4 * gcn_out, gcn_out, 1, 1, 0, bias=False)
             self.conv_s = nn.Conv2d(gcn_out // 4 + gcn_out, gcn_out, 1, 1, 0, bias=False)
         else:
-            self.conv_s_128 = nn.Conv2d(gcn_out + gcn_out + 4 * gcn_out, gcn_out, 1, 1, 0, bias=False)
-            self.conv_s_64 = nn.Conv2d(gcn_out + gcn_out + 4 * gcn_out, gcn_out, 1, 1, 0, bias=False)
-            self.conv_s_32 = nn.Conv2d(gcn_out + gcn_out + 4 * gcn_out, gcn_out, 1, 1, 0, bias=False)
+            if self.extend_depth:
+                self.conv_s_128 = nn.Conv2d(gcn_out + gcn_out + 4 * gcn_out, gcn_out, 1, 1, 0, bias=False)
+                self.conv_s_64 = nn.Conv2d(gcn_out + gcn_out + 4 * gcn_out, gcn_out, 1, 1, 0, bias=False)
+                self.conv_s_32 = nn.Conv2d(gcn_out + gcn_out + 4 * gcn_out, gcn_out, 1, 1, 0, bias=False)
             self.conv_s_16 = nn.Conv2d(gcn_out + gcn_out + 4 * gcn_out, gcn_out, 1, 1, 0, bias=False)
             self.conv_s_8 = nn.Conv2d(gcn_out + gcn_out + 4 * gcn_out, gcn_out, 1, 1, 0, bias=False)
             self.conv_s_4 = nn.Conv2d(gcn_out + gcn_out + 4 * gcn_out, gcn_out, 1, 1, 0, bias=False)
@@ -472,16 +476,18 @@ class QuadBilinear(nn.Module):
         (s, s_2, s_4, s_8, s_16, s_32) = ins
 
         # approximate root nodes with average pooling
-        av = nn.AvgPool2d(2, 2)
-        av3 = nn.AvgPool2d(3, 3)
-        s_64 = av(s_32)
-        s_128 = av(s_64)
-        s_384 = av3(s_128)
+        if self.extend_depth:
+            av = nn.AvgPool2d(2, 2)
+            av3 = nn.AvgPool2d(3, 3)
+            s_64 = av(s_32)
+            s_128 = av(s_64)
+            s_384 = av3(s_128)
 
         # channel compression for graph convolution features
-        s_384 = self.compress_s_384(s_384)
-        s_128 = self.compress_s_128(s_128)
-        s_64 = self.compress_s_64(s_64)
+        if self.extend_depth:
+            s_384 = self.compress_s_384(s_384)
+            s_128 = self.compress_s_128(s_128)
+            s_64 = self.compress_s_64(s_64)
         s_32 = self.compress_s_32(s_32)
         s_16 = self.compress_s_16(s_16)
         s_8 = self.compress_s_8(s_8)
@@ -497,10 +503,13 @@ class QuadBilinear(nn.Module):
             ps = nn.Upsample(scale_factor=2)
             ps3 = nn.Upsample(scale_factor=3)
 
-        x = self.conv_s_128(torch.cat([ps3(s_384), s_128, gather(s_64)], 1))
-        x = self.conv_s_64(torch.cat([ps(x), s_64, gather(s_32)], 1))
-        x = self.conv_s_32(torch.cat([ps(x), s_32, gather(s_16)], 1))
-        x = self.conv_s_16(torch.cat([ps(x), s_16, gather(s_8)], 1))
+        if self.extend_depth:
+            x = self.conv_s_128(torch.cat([ps3(s_384), s_128, gather(s_64)], 1))
+            x = self.conv_s_64(torch.cat([ps(x), s_64, gather(s_32)], 1))
+            x = self.conv_s_32(torch.cat([ps(x), s_32, gather(s_16)], 1))
+            x = self.conv_s_16(torch.cat([ps(x), s_16, gather(s_8)], 1))
+        else:
+            x = self.conv_s_16(torch.cat([ps(s_32), s_16, gather(s_8)], 1))
         x = self.conv_s_8(torch.cat([ps(x), s_8, gather(s_4)], 1))
         x = self.conv_s_4(torch.cat([ps(x), s_4, gather(s_2)], 1))
         x = self.conv_s_2(torch.cat([ps(x), s_2, gather(s)], 1))

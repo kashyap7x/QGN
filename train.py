@@ -96,6 +96,12 @@ def train(nets, loader, optimizers, history, epoch, args):
 
         # Backward
         err.backward()
+
+        for net in nets:
+            nn.utils.clip_grad_norm(net.parameters(),1)
+            #for param in net.parameters():
+            #    print(param.grad.data.shape, param.grad.data.sum())
+
         for optimizer in optimizers:
             optimizer.step()
 
@@ -331,13 +337,13 @@ if __name__ == '__main__':
     # optimization related arguments
     parser.add_argument('--num_gpus', default=1, type=int,
                         help='number of gpus to use')
-    parser.add_argument('--batch_size_per_gpu', default=2, type=int,
+    parser.add_argument('--batch_size_per_gpu', default=4, type=int,
                         help='input batch size')
     parser.add_argument('--num_epoch', default=100, type=int,
                         help='epochs to train for')
     parser.add_argument('--optim', default='SGD', help='optimizer')
-    parser.add_argument('--lr_encoder', default=1e-3, type=float, help='LR')
-    parser.add_argument('--lr_decoder', default=1e-1, type=float, help='LR')
+    parser.add_argument('--lr_encoder', default=0.1, type=float, help='LR')
+    parser.add_argument('--lr_decoder', default=1, type=float, help='LR')
     parser.add_argument('--lr_pow', default=0.9, type=float,
                         help='power in poly to drop LR')
     parser.add_argument('--beta1', default=0.9, type=float,
@@ -348,7 +354,7 @@ if __name__ == '__main__':
                         help='fix bn params')
 
     # Data related arguments
-    parser.add_argument('--num_val', default=64, type=int,
+    parser.add_argument('--num_val', default=32, type=int,
                         help='number of images to evaluate')
     parser.add_argument('--num_class', default=150, type=int,
                         help='number of classes')

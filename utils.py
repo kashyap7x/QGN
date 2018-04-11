@@ -138,10 +138,8 @@ def gather(a, window=(2, 2)):
     shape = (1, 1, A.shape[2]// block[2], A.shape[3]// block[3])+ block
     strides = (block[0] * A.strides[0], block[1] * A.strides[1], block[2] * A.strides[2], block[3] * A.strides[3])+ A.strides
     indices = ast(A, shape=shape, strides=strides).T.reshape(batch, channels * block[2] * block[3], A.shape[2] // block[2], A.shape[3] // block[3])
-    a_tensor = a.data if isinstance(a, Variable) else a
-    ind_tensor = torch.from_numpy(indices).long()
+    ind_variable = Variable(torch.from_numpy(indices)).long()
     if torch.cuda.is_available():
-        a_tensor = a_tensor.cuda()
-        ind_tensor = ind_tensor.cuda()
-    a_gathered = torch.take(a_tensor, ind_tensor)
-    return Variable(a_gathered) if isinstance(a, Variable) else a_gathered
+        ind_variable = ind_variable.cuda()
+    a_gathered = torch.take(a, ind_variable)
+    return a_gathered
