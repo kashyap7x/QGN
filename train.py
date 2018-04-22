@@ -337,7 +337,7 @@ if __name__ == '__main__':
     # optimization related arguments
     parser.add_argument('--num_gpus', default=1, type=int,
                         help='number of gpus to use')
-    parser.add_argument('--batch_size_per_gpu', default=4, type=int,
+    parser.add_argument('--batch_size_per_gpu', default=2, type=int,
                         help='input batch size')
     parser.add_argument('--num_epoch', default=100, type=int,
                         help='epochs to train for')
