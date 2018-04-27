@@ -112,7 +112,6 @@ class Dataset(torchdata.Dataset):
 
         # substracted by mean and divided by std
         image = self.img_transform(image)
-        print(seg.shape)
         return image, segmentation.long(), img_basename
 
     def __len__(self):

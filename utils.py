@@ -143,3 +143,16 @@ def gather(a, window=(2, 2)):
         ind_variable = ind_variable.cuda()
     a_gathered = torch.take(a, ind_variable)
     return a_gathered
+
+
+def to_one_hot(y, n_dims=None):
+    """ Take integer y (tensor or variable) with n dims and convert it to 1-hot representation with n+1 dims. """
+    y_tensor = y.data if isinstance(y, Variable) else y
+    y_tensor = y_tensor.type(torch.LongTensor).unsqueeze(1) + 1
+    n_dims = n_dims + 1 if n_dims is not None else int(torch.max(y_tensor)) + 2
+    y_one_hot = torch.zeros(y_tensor.size(0), n_dims, y_tensor.size(-2), y_tensor.size(-1))
+    y_one_hot.scatter_(1,y_tensor,torch.ones(y_tensor.size()))
+    y_one_hot = y_one_hot[:, 1:, :, :]
+    if torch.cuda.is_available():
+        y_one_hot = y_one_hot.cuda()
+    return Variable(y_one_hot) if isinstance(y, Variable) else y_one_hot

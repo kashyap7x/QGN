@@ -465,7 +465,17 @@ class QuadBilinear(nn.Module):
             self.conv_s = nn.Conv2d(gcn_out + gcn_out, gcn_out, 1, 1, 0, bias=False)
 
         # last conv
+        if self.extend_depth:
+            self.conv_last_s_384 = nn.Conv2d(gcn_out, num_class, 1, 1, 0, bias=False)
+            self.conv_last_s_128 = nn.Conv2d(gcn_out, num_class, 1, 1, 0, bias=False)
+            self.conv_last_s_64 = nn.Conv2d(gcn_out, num_class, 1, 1, 0, bias=False)
+        self.conv_last_s_32 = nn.Conv2d(gcn_out, num_class, 1, 1, 0, bias=False)
+        self.conv_last_s_16 = nn.Conv2d(gcn_out, num_class, 1, 1, 0, bias=False)
+        self.conv_last_s_8 = nn.Conv2d(gcn_out, num_class, 1, 1, 0, bias=False)
+        self.conv_last_s_4 = nn.Conv2d(gcn_out, num_class, 1, 1, 0, bias=False)
+        self.conv_last_s_2 = nn.Conv2d(gcn_out, num_class, 1, 1, 0, bias=False)
         self.conv_last_s = nn.Conv2d(gcn_out, num_class, 1, 1, 0, bias=False)
+
 
     def forward(self, ins, segSize=None):
         if segSize is None:
@@ -504,19 +514,26 @@ class QuadBilinear(nn.Module):
             ps3 = nn.Upsample(scale_factor=3)
 
         if self.extend_depth:
-            x = self.conv_s_128(torch.cat([ps3(s_384), s_128, gather(s_64)], 1))
-            x = self.conv_s_64(torch.cat([ps(x), s_64, gather(s_32)], 1))
-            x = self.conv_s_32(torch.cat([ps(x), s_32, gather(s_16)], 1))
-            x = self.conv_s_16(torch.cat([ps(x), s_16, gather(s_8)], 1))
-        else:
-            x = self.conv_s_16(torch.cat([ps(s_32), s_16, gather(s_8)], 1))
-        x = self.conv_s_8(torch.cat([ps(x), s_8, gather(s_4)], 1))
-        x = self.conv_s_4(torch.cat([ps(x), s_4, gather(s_2)], 1))
-        x = self.conv_s_2(torch.cat([ps(x), s_2, gather(s)], 1))
-        x = self.conv_s(torch.cat([ps(x), s], 1))
+            s_128 = self.conv_s_128(torch.cat([ps3(s_384), s_128, gather(s_64)], 1))
+            s_64 = self.conv_s_64(torch.cat([ps(s_128), s_64, gather(s_32)], 1))
+            s_32 = self.conv_s_32(torch.cat([ps(s_64), s_32, gather(s_16)], 1))
+        s_16 = self.conv_s_16(torch.cat([ps(s_32), s_16, gather(s_8)], 1))
+        s_8 = self.conv_s_8(torch.cat([ps(s_16), s_8, gather(s_4)], 1))
+        s_4 = self.conv_s_4(torch.cat([ps(s_8), s_4, gather(s_2)], 1))
+        s_2 = self.conv_s_2(torch.cat([ps(s_4), s_2, gather(s)], 1))
+        s = self.conv_s(torch.cat([ps(s_2), s], 1))
 
         # label prediction from graph node representations
-        x = self.conv_last_s(x)
+        if self.extend_depth:
+            x_384 = self.conv_last_s_384(s_384)
+            x_128 = self.conv_last_s_128(s_128)
+            x_64 = self.conv_last_s_64(s_64)
+        x_32 = self.conv_last_s_32(s_32)
+        x_16 = self.conv_last_s_16(s_16)
+        x_8 = self.conv_last_s_8(s_8)
+        x_4 = self.conv_last_s_4(s_4)
+        x_2 = self.conv_last_s_2(s_2)
+        x = self.conv_last_s(s)
 
         if not (x.size(2) == segSize[0] and x.size(3) == segSize[1]):
             x = nn.functional.upsample(x, size=segSize, mode='bilinear')
@@ -525,4 +542,10 @@ class QuadBilinear(nn.Module):
             x = nn.functional.softmax(x)
         else:
             x = nn.functional.log_softmax(x)
-        return x
+
+        if self.extend_depth:
+            x_multiscale = (x_2, x_4, x_8, x_16, x_32, x_64, x_128, x_384)
+        else:
+            x_multiscale = (x_2, x_4, x_8, x_16, x_32)
+
+        return x, x_multiscale

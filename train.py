@@ -14,7 +14,7 @@ from scipy.misc import imresize, imsave
 # Our libs
 from dataset import Dataset
 from models import ModelBuilder
-from utils import AverageMeter, colorEncode, accuracy
+from utils import AverageMeter, colorEncode, accuracy, to_one_hot
 
 import matplotlib
 matplotlib.use('Agg')
@@ -22,18 +22,44 @@ import matplotlib.pyplot as plt
 
 
 def forward_with_loss(nets, batch_data, args, is_train=True):
-    (net_encoder, net_decoder, crit) = nets
+    (net_encoder, net_decoder, crit, crit_scale) = nets
     (imgs, segs, infos) = batch_data
+
+    # get quadtrees from segs
+    segs_one_hot = to_one_hot(segs, args.num_class)
 
     # feed input data
     input_img = Variable(imgs, volatile=not is_train)
     label_seg = Variable(segs, volatile=not is_train)
+    label_seg_one_hot = Variable(segs_one_hot, volatile=not is_train)
     input_img = input_img.cuda()
     label_seg = label_seg.cuda()
+    label_seg_one_hot = label_seg_one_hot.cuda()
 
     # forward
-    pred = net_decoder(net_encoder(input_img))
-    err = crit(pred, label_seg)
+    if args.arch_decoder[:4]=='quad':
+        av = nn.AvgPool2d(2, 2)
+        label_2 = (av(label_seg_one_hot)!=0).float() * 1
+        label_4 = (av(label_2)!=0).float() * 1
+        label_8 = (av(label_4) != 0).float() * 1
+        label_16 = (av(label_8) != 0).float() * 1
+        label_32 = (av(label_16) != 0).float() * 1
+
+        pred, pred_multiscale = net_decoder(net_encoder(input_img))
+        (pred_2, pred_4, pred_8, pred_16, pred_32) = pred_multiscale
+
+        err_pixel = crit(pred, label_seg)
+        err_2 = crit_scale(pred_2, label_2)
+        err_4 = crit_scale(pred_4, label_4)
+        err_8 = crit_scale(pred_8, label_8)
+        err_16 = crit_scale(pred_16, label_16)
+        err_32 = crit_scale(pred_32, label_32)
+
+        err = err_pixel + 2 * err_2 + 4 * err_4 + 8 * err_8 + 16 * err_16 + 32 * err_32
+    else:
+        pred = net_decoder(net_encoder(input_img))
+        err = crit(pred, label_seg)
+
     return pred, err
 
 
@@ -97,8 +123,8 @@ def train(nets, loader, optimizers, history, epoch, args):
         # Backward
         err.backward()
 
-        for net in nets:
-            nn.utils.clip_grad_norm(net.parameters(),1)
+        #for net in nets:
+            #nn.utils.clip_grad_norm(net.parameters(),1)
             #for param in net.parameters():
             #    print(param.grad.data.shape, param.grad.data.sum())
 
@@ -185,7 +211,7 @@ def evaluate(nets, loader, history, epoch, args):
 
 def checkpoint(nets, history, args):
     print('Saving checkpoints...')
-    (net_encoder, net_decoder, crit) = nets
+    (net_encoder, net_decoder, crit, crit_scale) = nets
     suffix_latest = 'latest.pth'
     suffix_best = 'best.pth'
 
@@ -215,7 +241,7 @@ def checkpoint(nets, history, args):
 
 
 def create_optimizers(nets, args):
-    (net_encoder, net_decoder, crit) = nets
+    (net_encoder, net_decoder, crit, crit_scale) = nets
     optimizer_encoder = torch.optim.SGD(
         net_encoder.parameters(),
         lr=args.lr_encoder,
@@ -254,6 +280,7 @@ def main(args):
                                         weights=args.weights_decoder)
 
     crit = nn.NLLLoss2d(ignore_index=-1)
+    crit_scale = nn.BCEWithLogitsLoss()
 
     # Dataset and Loader
     dataset_train = Dataset(args.list_train, args, is_train=1)
@@ -280,7 +307,7 @@ def main(args):
                                       device_ids=range(args.num_gpus))
         net_decoder = nn.DataParallel(net_decoder,
                                       device_ids=range(args.num_gpus))
-    nets = (net_encoder, net_decoder, crit)
+    nets = (net_encoder, net_decoder, crit, crit_scale)
     for net in nets:
         net.cuda()
 
@@ -337,13 +364,13 @@ if __name__ == '__main__':
     # optimization related arguments
     parser.add_argument('--num_gpus', default=1, type=int,
                         help='number of gpus to use')
-    parser.add_argument('--batch_size_per_gpu', default=2, type=int,
+    parser.add_argument('--batch_size_per_gpu', default=1, type=int,
                         help='input batch size')
     parser.add_argument('--num_epoch', default=100, type=int,
                         help='epochs to train for')
     parser.add_argument('--optim', default='SGD', help='optimizer')
-    parser.add_argument('--lr_encoder', default=0.1, type=float, help='LR')
-    parser.add_argument('--lr_decoder', default=1, type=float, help='LR')
+    parser.add_argument('--lr_encoder', default=1e-4, type=float, help='LR')
+    parser.add_argument('--lr_decoder', default=1e-3, type=float, help='LR')
     parser.add_argument('--lr_pow', default=0.9, type=float,
                         help='power in poly to drop LR')
     parser.add_argument('--beta1', default=0.9, type=float,
