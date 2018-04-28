@@ -525,14 +525,14 @@ class QuadBilinear(nn.Module):
 
         # label prediction from graph node representations
         if self.extend_depth:
-            x_384 = self.conv_last_s_384(s_384)
-            x_128 = self.conv_last_s_128(s_128)
-            x_64 = self.conv_last_s_64(s_64)
-        x_32 = self.conv_last_s_32(s_32)
-        x_16 = self.conv_last_s_16(s_16)
-        x_8 = self.conv_last_s_8(s_8)
-        x_4 = self.conv_last_s_4(s_4)
-        x_2 = self.conv_last_s_2(s_2)
+            x_384 = nn.functional.softmax(self.conv_last_s_384(s_384))
+            x_128 = nn.functional.softmax(self.conv_last_s_128(s_128))
+            x_64 = nn.functional.softmax(self.conv_last_s_64(s_64))
+        x_32 = nn.functional.softmax(self.conv_last_s_32(s_32))
+        x_16 = nn.functional.softmax(self.conv_last_s_16(s_16))
+        x_8 = nn.functional.softmax(self.conv_last_s_8(s_8))
+        x_4 = nn.functional.softmax(self.conv_last_s_4(s_4))
+        x_2 = nn.functional.softmax(self.conv_last_s_2(s_2))
         x = self.conv_last_s(s)
 
         if not (x.size(2) == segSize[0] and x.size(3) == segSize[1]):

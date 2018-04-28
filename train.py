@@ -39,11 +39,17 @@ def forward_with_loss(nets, batch_data, args, is_train=True):
     # forward
     if args.arch_decoder[:4]=='quad':
         av = nn.AvgPool2d(2, 2)
-        label_2 = (av(label_seg_one_hot)!=0).float() * 1
-        label_4 = (av(label_2)!=0).float() * 1
-        label_8 = (av(label_4) != 0).float() * 1
-        label_16 = (av(label_8) != 0).float() * 1
-        label_32 = (av(label_16) != 0).float() * 1
+        #label_2 = (av(label_seg_one_hot)!=0).float() * 1
+        #label_4 = (av(label_2)!=0).float() * 1
+        #label_8 = (av(label_4) != 0).float() * 1
+        #label_16 = (av(label_8) != 0).float() * 1
+        #label_32 = (av(label_16) != 0).float() * 1
+
+        label_2 = av(label_seg_one_hot)
+        label_4 = av(label_2)
+        label_8 = av(label_4)
+        label_16 = av(label_8)
+        label_32 = av(label_16)
 
         pred, pred_multiscale = net_decoder(net_encoder(input_img))
         (pred_2, pred_4, pred_8, pred_16, pred_32) = pred_multiscale
@@ -55,7 +61,7 @@ def forward_with_loss(nets, batch_data, args, is_train=True):
         err_16 = crit_scale(pred_16, label_16)
         err_32 = crit_scale(pred_32, label_32)
 
-        err = err_pixel + 2 * err_2 + 4 * err_4 + 8 * err_8 + 16 * err_16 + 32 * err_32
+        err = err_pixel + (2 * err_2 + 4 * err_4 + 8 * err_8 + 16 * err_16 + 32 * err_32)
     else:
         pred = net_decoder(net_encoder(input_img))
         err = crit(pred, label_seg)
@@ -280,7 +286,8 @@ def main(args):
                                         weights=args.weights_decoder)
 
     crit = nn.NLLLoss2d(ignore_index=-1)
-    crit_scale = nn.BCEWithLogitsLoss()
+    #crit_scale = nn.BCEWithLogitsLoss()
+    crit_scale = nn.KLDivLoss()
 
     # Dataset and Loader
     dataset_train = Dataset(args.list_train, args, is_train=1)
@@ -369,8 +376,8 @@ if __name__ == '__main__':
     parser.add_argument('--num_epoch', default=100, type=int,
                         help='epochs to train for')
     parser.add_argument('--optim', default='SGD', help='optimizer')
-    parser.add_argument('--lr_encoder', default=1e-4, type=float, help='LR')
-    parser.add_argument('--lr_decoder', default=1e-3, type=float, help='LR')
+    parser.add_argument('--lr_encoder', default=1e-3, type=float, help='LR')
+    parser.add_argument('--lr_decoder', default=1e-2, type=float, help='LR')
     parser.add_argument('--lr_pow', default=0.9, type=float,
                         help='power in poly to drop LR')
     parser.add_argument('--beta1', default=0.9, type=float,
