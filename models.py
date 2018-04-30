@@ -525,22 +525,49 @@ class QuadBilinear(nn.Module):
 
         # label prediction from graph node representations
         if self.extend_depth:
-            x_384 = nn.functional.softmax(self.conv_last_s_384(s_384))
-            x_128 = nn.functional.softmax(self.conv_last_s_128(s_128))
-            x_64 = nn.functional.softmax(self.conv_last_s_64(s_64))
-        x_32 = nn.functional.softmax(self.conv_last_s_32(s_32))
-        x_16 = nn.functional.softmax(self.conv_last_s_16(s_16))
-        x_8 = nn.functional.softmax(self.conv_last_s_8(s_8))
-        x_4 = nn.functional.softmax(self.conv_last_s_4(s_4))
-        x_2 = nn.functional.softmax(self.conv_last_s_2(s_2))
+            x_384 = self.conv_last_s_384(s_384)
+            x_128 = self.conv_last_s_128(s_128)
+            x_64 = self.conv_last_s_64(s_64)
+        x_32 = self.conv_last_s_32(s_32)
+        x_16 = self.conv_last_s_16(s_16)
+        x_8 = self.conv_last_s_8(s_8)
+        x_4 = self.conv_last_s_4(s_4)
+        x_2 = self.conv_last_s_2(s_2)
         x = self.conv_last_s(s)
 
+        if self.extend_depth:
+            x_384 = nn.functional.upsample(x_384, size=segSize, mode='bilinear')
+            x_128 = nn.functional.upsample(x_128, size=segSize, mode='bilinear')
+            x_64 = nn.functional.upsample(x_64, size=segSize, mode='bilinear')
+        x_32 = nn.functional.upsample(x_32, size=segSize, mode='bilinear')
+        x_16 = nn.functional.upsample(x_16, size=segSize, mode='bilinear')
+        x_8 = nn.functional.upsample(x_8, size=segSize, mode='bilinear')
+        x_4 = nn.functional.upsample(x_4, size=segSize, mode='bilinear')
+        x_2 = nn.functional.upsample(x_2, size=segSize, mode='bilinear')
         if not (x.size(2) == segSize[0] and x.size(3) == segSize[1]):
             x = nn.functional.upsample(x, size=segSize, mode='bilinear')
 
         if self.use_softmax:
+            if self.extend_depth:
+                x_384 = nn.functional.softmax(x_384)
+                x_128 = nn.functional.softmax(x_128)
+                x_64 = nn.functional.softmax(x_64)
+            x_32 = nn.functional.softmax(x_32)
+            x_16 = nn.functional.softmax(x_16)
+            x_8 = nn.functional.softmax(x_8)
+            x_4 = nn.functional.softmax(x_4)
+            x_2 = nn.functional.softmax(x_2)
             x = nn.functional.softmax(x)
         else:
+            if self.extend_depth:
+                x_384 = nn.functional.log_softmax(x_384)
+                x_128 = nn.functional.log_softmax(x_128)
+                x_64 = nn.functional.log_softmax(x_64)
+            x_32 = nn.functional.log_softmax(x_32)
+            x_16 = nn.functional.log_softmax(x_16)
+            x_8 = nn.functional.log_softmax(x_8)
+            x_4 = nn.functional.log_softmax(x_4)
+            x_2 = nn.functional.log_softmax(x_2)
             x = nn.functional.log_softmax(x)
 
         if self.extend_depth:
