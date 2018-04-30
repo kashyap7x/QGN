@@ -61,7 +61,7 @@ def forward_with_loss(nets, batch_data, args, is_train=True):
         err_16 = crit_scale(pred_16, label_16)
         err_32 = crit_scale(pred_32, label_32)
 
-        err = err_pixel + (2 * err_2 + 4 * err_4 + 8 * err_8 + 16 * err_16 + 32 * err_32)
+        err = err_pixel + (1 * err_2 + 1 * err_4 + 1 * err_8 + 1 * err_16 + 1 * err_32)
     else:
         pred = net_decoder(net_encoder(input_img))
         err = crit(pred, label_seg)
@@ -369,9 +369,9 @@ if __name__ == '__main__':
                         default='./data/ADEChallengeData2016/annotations')
 
     # optimization related arguments
-    parser.add_argument('--num_gpus', default=1, type=int,
+    parser.add_argument('--num_gpus', default=2, type=int,
                         help='number of gpus to use')
-    parser.add_argument('--batch_size_per_gpu', default=1, type=int,
+    parser.add_argument('--batch_size_per_gpu', default=4, type=int,
                         help='input batch size')
     parser.add_argument('--num_epoch', default=100, type=int,
                         help='epochs to train for')
@@ -384,7 +384,7 @@ if __name__ == '__main__':
                         help='momentum for sgd, beta1 for adam')
     parser.add_argument('--weight_decay', default=1e-4, type=float,
                         help='weights regularizer')
-    parser.add_argument('--fix_bn', default=1, type=int,
+    parser.add_argument('--fix_bn', default=0, type=int,
                         help='fix bn params')
 
     # Data related arguments
