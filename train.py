@@ -26,47 +26,49 @@ def forward_with_loss(nets, batch_data, args, is_train=True):
     (imgs, segs, infos) = batch_data
 
     # get quadtrees from segs
-    #segs_one_hot = to_one_hot(segs, args.num_class)
+    segs_one_hot = to_one_hot(segs, args.num_class)
 
     # feed input data
     input_img = Variable(imgs, volatile=not is_train)
     label_seg = Variable(segs, volatile=not is_train)
-    #label_seg_one_hot = Variable(segs_one_hot, volatile=not is_train)
+    label_seg_one_hot = Variable(segs_one_hot, volatile=not is_train)
     input_img = input_img.cuda()
     label_seg = label_seg.cuda()
-    #label_seg_one_hot = label_seg_one_hot.cuda()
+    label_seg_one_hot = label_seg_one_hot.cuda()
 
     # forward
     if args.arch_decoder[:4]=='quad':
-        #av = nn.AvgPool2d(2, 2)
+        av = nn.AvgPool2d(2, 2)
         #label_2 = (av(label_seg_one_hot)!=0).float() * 1
         #label_4 = (av(label_2)!=0).float() * 1
         #label_8 = (av(label_4) != 0).float() * 1
         #label_16 = (av(label_8) != 0).float() * 1
         #label_32 = (av(label_16) != 0).float() * 1
 
-        #label_2 = av(label_seg_one_hot)
-        #label_4 = av(label_2)
-        #label_8 = av(label_4)
-        #label_16 = av(label_8)
-        #label_32 = av(label_16)
+        label_2 = av(label_seg_one_hot)
+        label_4 = av(label_2)
+        label_8 = av(label_4)
+        label_16 = av(label_8)
+        label_32 = av(label_16)
 
         pred, pred_multiscale = net_decoder(net_encoder(input_img))
         (pred_2, pred_4, pred_8, pred_16, pred_32) = pred_multiscale
 
-        err_pixel = crit(pred, label_seg)
+        err_pixel = crit_scale(pred, label_seg_one_hot)
 
-        #err_2 = crit_scale(pred_2, label_2)
-        #err_4 = crit_scale(pred_4, label_4)
-        #err_8 = crit_scale(pred_8, label_8)
-        #err_16 = crit_scale(pred_16, label_16)
-        #err_32 = crit_scale(pred_32, label_32)
+        #err_pixel = crit(pred, label_seg)
 
-        err_2 = crit(pred_2, label_seg)
-        err_4 = crit(pred_4, label_seg)
-        err_8 = crit(pred_8, label_seg)
-        err_16 = crit(pred_16, label_seg)
-        err_32 = crit(pred_32, label_seg)
+        err_2 = crit_scale(pred_2, label_2)
+        err_4 = crit_scale(pred_4, label_4)
+        err_8 = crit_scale(pred_8, label_8)
+        err_16 = crit_scale(pred_16, label_16)
+        err_32 = crit_scale(pred_32, label_32)
+
+        #err_2 = crit(pred_2, label_seg)
+        #err_4 = crit(pred_4, label_seg)
+        #err_8 = crit(pred_8, label_seg)
+        #err_16 = crit(pred_16, label_seg)
+        #err_32 = crit(pred_32, label_seg)
 
         err = err_pixel + (1 * err_2 + 1 * err_4 + 1 * err_8 + 1 * err_16 + 1 * err_32)
     else:

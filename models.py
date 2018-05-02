@@ -420,12 +420,14 @@ class PSPBilinear(nn.Module):
 class QuadBilinear(nn.Module):
     def __init__(self, num_class=150, segSize=384,
                  channel_dims = (3, 64, 64, 128, 256, 512), gcn_out = 128,
-                 use_softmax=False, extend_depth=False, pixelShuffle=False):
+                 use_softmax=False, extend_depth=False, pixelShuffle=False,
+                 return_scaled_preds=True):
         super(QuadBilinear, self).__init__()
         self.segSize = segSize
         self.use_softmax = use_softmax
         self.extend_depth = extend_depth
         self.pixelShuffle = pixelShuffle
+        self.return_scaled_preds = return_scaled_preds
 
         # channel compression
         if self.extend_depth:
@@ -535,19 +537,20 @@ class QuadBilinear(nn.Module):
         x_2 = self.conv_last_s_2(s_2)
         x = self.conv_last_s(s)
 
-        if self.extend_depth:
-            x_384 = nn.functional.upsample(x_384, size=segSize, mode='bilinear')
-            x_128 = nn.functional.upsample(x_128, size=segSize, mode='bilinear')
-            x_64 = nn.functional.upsample(x_64, size=segSize, mode='bilinear')
-        x_32 = nn.functional.upsample(x_32, size=segSize, mode='bilinear')
-        x_16 = nn.functional.upsample(x_16, size=segSize, mode='bilinear')
-        x_8 = nn.functional.upsample(x_8, size=segSize, mode='bilinear')
-        x_4 = nn.functional.upsample(x_4, size=segSize, mode='bilinear')
-        x_2 = nn.functional.upsample(x_2, size=segSize, mode='bilinear')
+        if not self.return_scaled_preds:
+            if self.extend_depth:
+                x_384 = nn.functional.upsample(x_384, size=segSize, mode='bilinear')
+                x_128 = nn.functional.upsample(x_128, size=segSize, mode='bilinear')
+                x_64 = nn.functional.upsample(x_64, size=segSize, mode='bilinear')
+            x_32 = nn.functional.upsample(x_32, size=segSize, mode='bilinear')
+            x_16 = nn.functional.upsample(x_16, size=segSize, mode='bilinear')
+            x_8 = nn.functional.upsample(x_8, size=segSize, mode='bilinear')
+            x_4 = nn.functional.upsample(x_4, size=segSize, mode='bilinear')
+            x_2 = nn.functional.upsample(x_2, size=segSize, mode='bilinear')
         if not (x.size(2) == segSize[0] and x.size(3) == segSize[1]):
             x = nn.functional.upsample(x, size=segSize, mode='bilinear')
 
-        if self.use_softmax:
+        if self.use_softmax or self.return_scaled_preds:
             if self.extend_depth:
                 x_384 = nn.functional.softmax(x_384)
                 x_128 = nn.functional.softmax(x_128)
