@@ -574,7 +574,7 @@ class UPerNet(nn.Module):
 # GCN based QuadNet
 class QuadNet(nn.Module):
     def __init__(self, num_class=150, quad_inplanes = (3, 128, 256, 512, 1024, 2048),
-                 quad_dim = 64, use_softmax=False, pixelShuffle=False):
+                 quad_dim = 32, use_softmax=False, pixelShuffle=False):
         super(QuadNet, self).__init__()
         self.use_softmax = use_softmax
         self.pixelShuffle = pixelShuffle

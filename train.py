@@ -234,7 +234,7 @@ if __name__ == '__main__':
                         default='./data/')
 
     # optimization related arguments
-    parser.add_argument('--num_gpus', default=1, type=int,
+    parser.add_argument('--num_gpus', default=2, type=int,
                         help='number of gpus to use')
     parser.add_argument('--batch_size_per_gpu', default=1, type=int,
                         help='input batch size')
