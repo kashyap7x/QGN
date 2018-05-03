@@ -1,8 +1,9 @@
 import numpy as np
+import re
+import functools
 from numpy.lib.stride_tricks import as_strided as ast
 import torch
 from torch.autograd import Variable
-
 
 class AverageMeter(object):
     """Computes and stores the average and current value"""
@@ -82,7 +83,7 @@ def unique(ar, return_index=False, return_inverse=False, return_counts=False):
     return ret
 
 
-def colorEncode(labelmap, colors):
+def colorEncode(labelmap, colors, mode='BGR'):
     labelmap = labelmap.astype('int')
     labelmap_rgb = np.zeros((labelmap.shape[0], labelmap.shape[1], 3),
                             dtype=np.uint8)
@@ -92,42 +93,86 @@ def colorEncode(labelmap, colors):
         labelmap_rgb += (labelmap == label)[:, :, np.newaxis] * \
             np.tile(colors[label],
                     (labelmap.shape[0], labelmap.shape[1], 1))
-    return labelmap_rgb
+
+    if mode == 'BGR':
+        return labelmap_rgb[:, :, ::-1]
+    else:
+        return labelmap_rgb
 
 
-def accuracy(batch_data, pred):
-    (imgs, segs, infos) = batch_data
-    _, preds = torch.max(pred.data.cpu(), dim=1)
-    valid = (segs >= 0)
-    acc = 1.0 * torch.sum(valid * (preds == segs)) / (torch.sum(valid) + 1e-10)
-    return acc, torch.sum(valid)
+def accuracy(preds, label):
+    valid = (label >= 0)
+    acc_sum = (valid * (preds == label)).sum()
+    valid_sum = valid.sum()
+    acc = float(acc_sum) / (valid_sum + 1e-10)
+    return acc, valid_sum
 
 
-def intersectionAndUnion(batch_data, pred, numClass):
-    (imgs, segs, infos) = batch_data
-    _, preds = torch.max(pred.data.cpu(), dim=1)
+def intersectionAndUnion(imPred, imLab, numClass):
+    imPred = np.asarray(imPred).copy()
+    imLab = np.asarray(imLab).copy()
 
-    # compute area intersection
-    intersect = preds.clone()
-    intersect[torch.ne(preds, segs)] = -1
+    imPred += 1
+    imLab += 1
+    # Remove classes from unlabeled pixels in gt image.
+    # We should not penalize detections in unlabeled portions of the image.
+    imPred = imPred * (imLab > 0)
 
-    area_intersect = torch.histc(intersect.float(),
-                                 bins=numClass,
-                                 min=0,
-                                 max=numClass-1)
+    # Compute area intersection:
+    intersection = imPred * (imPred == imLab)
+    (area_intersection, _) = np.histogram(
+        intersection, bins=numClass, range=(1, numClass))
 
-    # compute area union:
-    preds[torch.lt(segs, 0)] = -1
-    area_pred = torch.histc(preds.float(),
-                            bins=numClass,
-                            min=0,
-                            max=numClass-1)
-    area_lab = torch.histc(segs.float(),
-                           bins=numClass,
-                           min=0,
-                           max=numClass-1)
-    area_union = area_pred + area_lab - area_intersect
-    return area_intersect, area_union
+    # Compute area union:
+    (area_pred, _) = np.histogram(imPred, bins=numClass, range=(1, numClass))
+    (area_lab, _) = np.histogram(imLab, bins=numClass, range=(1, numClass))
+    area_union = area_pred + area_lab - area_intersection
+
+    return (area_intersection, area_union)
+
+
+class NotSupportedCliException(Exception):
+    pass
+
+
+def process_range(xpu, inp):
+    start, end = map(int, inp)
+    if start > end:
+        end, start = start, end
+    return map(lambda x: '{}{}'.format(xpu, x), range(start, end+1))
+
+
+REGEX = [
+    (re.compile(r'^gpu(\d+)$'), lambda x: ['gpu%s' % x[0]]),
+    (re.compile(r'^(\d+)$'), lambda x: ['gpu%s' % x[0]]),
+    (re.compile(r'^gpu(\d+)-(?:gpu)?(\d+)$'),
+     functools.partial(process_range, 'gpu')),
+    (re.compile(r'^(\d+)-(\d+)$'),
+     functools.partial(process_range, 'gpu')),
+]
+
+
+def parse_devices(input_devices):
+    
+    """Parse user's devices input str to standard format.
+    e.g. [gpu0, gpu1, ...]
+
+    """
+    ret = []
+    for d in input_devices.split(','):
+        for regex, func in REGEX:
+            m = regex.match(d.lower().strip())
+            if m:
+                tmp = func(m.groups())
+                # prevent duplicate
+                for x in tmp:
+                    if x not in ret:
+                        ret.append(x)
+                break
+        else:
+            raise NotSupportedCliException(
+                    'Can not recognize device: "%s"' % d)
+    return ret
 
 
 def gather(a, window=(2, 2)):
