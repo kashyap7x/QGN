@@ -1,10 +1,9 @@
-# QuadNet for Semantic Segmentation on PyTorch
+# QuadNet for Semantic Segmentation
 
-This is a PyTorch implementation of QuadNet, a hierarchical scene parsing network based on graph convolutions. 
+PyTorch implementation of QuadNet, a hierarchical scene parsing network based on graph convolutions and pyramidal pooling. 
 
 ## Issues
-* ResNet-34 doesn't work with synchronized batch norm
-* No .cuda() in the original code
+* No .cuda() in the original code, check if necessary
 * utils.to_one_hot to be verified
 
 ## References

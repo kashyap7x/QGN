@@ -19,30 +19,46 @@ class SegmentationModuleBase(nn.Module):
 
 
 class SegmentationModule(SegmentationModuleBase):
-    def __init__(self, net_enc, net_dec, crit, deep_sup_scale=None):
+    def __init__(self, net_enc, net_dec, crit, deep_sup_scale=None, quad_sup=False):
         super(SegmentationModule, self).__init__()
         self.encoder = net_enc
         self.decoder = net_dec
         self.crit = crit
         self.deep_sup_scale = deep_sup_scale
+        self.quad_sup = quad_sup
 
     def forward(self, feed_dict, *, segSize=None):
-        # feed_dict = feed_dict[0] # weird fix for single GPU debugging
+        if torch.cuda.device_count()==1:
+            feed_dict = feed_dict[0] # weird fix for single GPU debugging
+        inputs = feed_dict['img_data'].cuda()
+        labels_orig_scale = feed_dict['seg_label'].cuda()
+        labels_scaled = []
         if segSize is None: # training
-            if self.deep_sup_scale is not None: # use deep supervision technique
-                (pred, pred_deepsup) = self.decoder(self.encoder(feed_dict['img_data'].cuda(), return_feature_maps=True))
+            if self.quad_sup:
+                (pred, pred_quad) = self.decoder(self.encoder(inputs, return_feature_maps=True))
+                labels_scaled.append(feed_dict['seg_label_2'].cuda())
+                labels_scaled.append(feed_dict['seg_label_4'].cuda())
             else:
-                pred = self.decoder(self.encoder(feed_dict['img_data'].cuda(), return_feature_maps=True))
+                if self.deep_sup_scale is not None: # use deep supervision technique
+                    (pred, pred_deepsup) = self.decoder(self.encoder(inputs, return_feature_maps=True))
+                else:
+                    pred = self.decoder(self.encoder(inputs, return_feature_maps=True))
 
-            loss = self.crit(pred, feed_dict['seg_label'].cuda())
-            if self.deep_sup_scale is not None:
-                loss_deepsup = self.crit(pred_deepsup, feed_dict['seg_label'].cuda())
+            loss = self.crit(pred, labels_orig_scale)
+
+            if self.quad_sup:
+                for i in range(len(pred_quad)):
+                    loss_quad = self.crit(pred_quad[i], labels_scaled[i])
+                    loss = loss + loss_quad * (self.deep_sup_scale ** (i + 1))
+
+            elif self.deep_sup_scale is not None:
+                loss_deepsup = self.crit(pred_deepsup, labels_orig_scale)
                 loss = loss + loss_deepsup * self.deep_sup_scale
 
-            acc = self.pixel_acc(pred, feed_dict['seg_label'].cuda())
+            acc = self.pixel_acc(pred, labels_orig_scale)
             return loss, acc
         else: # inference
-            pred = self.decoder(self.encoder(feed_dict['img_data'].cuda(), return_feature_maps=True), segSize=segSize)
+            pred = self.decoder(self.encoder(inputs, return_feature_maps=True), segSize=segSize)
             return pred
 
 
@@ -582,7 +598,7 @@ class QuadNet(nn.Module):
         self.quad_gcn = nn.ModuleList(self.quad_gcn)
 
         self.quad_out = []
-        for i in range(len(quad_inplanes) - 2): # skip the top and bottom layer
+        for i in range(len(quad_inplanes) - 1): # skip the bottom layer
             self.quad_out.append(nn.Conv2d(quad_dim, num_class, kernel_size=1, bias=False))
         self.quad_out = nn.ModuleList(self.quad_out)
 
@@ -604,8 +620,8 @@ class QuadNet(nn.Module):
         for i in reversed(range(len(conv_out)-1)):
             quad_ins.append(self.quad_in[i](conv_out[i]))
 
-        quad_preds = []
-        for i in reversed(range(1,len(conv_out)-1)):
+        quad_preds = [self.quad_out[0](f)]
+        for i in (range(1,len(conv_out)-1)):
             conv_eq = quad_ins[i]
 
             conv_minus = quad_ins[i-1]
@@ -615,9 +631,11 @@ class QuadNet(nn.Module):
             conv_plus = gather(conv_plus)
 
             gcn_in = torch.cat([conv_eq, conv_minus, conv_plus], 1)
-            quad_preds.append(self.quad_out[i-1](self.quad_gcn[i-1](gcn_in)))
+            quad_ins[i] = self.quad_gcn[i-1](gcn_in)
 
-        x = quad_preds[0]
+            quad_preds.append(self.quad_out[i](quad_ins[i]))
+
+        x = quad_preds[-1]
 
         if self.use_softmax:  # is True during inference
             x = nn.functional.upsample(x, size=segSize, mode='bilinear')
@@ -626,4 +644,8 @@ class QuadNet(nn.Module):
 
         x = nn.functional.log_softmax(x, dim=1)
 
-        return x
+        y = []
+        for i in reversed(range(len(quad_preds)-1)):
+            y.append(nn.functional.log_softmax(quad_preds[i], dim=1))
+
+        return x, y

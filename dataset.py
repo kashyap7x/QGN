@@ -104,6 +104,10 @@ class TrainDataset(torchdata.Dataset):
         batch_images = torch.zeros(self.batch_per_gpu, 3, batch_resized_height, batch_resized_width)
         batch_segms = torch.zeros(self.batch_per_gpu, batch_resized_height // self.segm_downsampling_rate, \
                                 batch_resized_width // self.segm_downsampling_rate).long()
+        batch_segms_2 = torch.zeros(self.batch_per_gpu, batch_resized_height // (self.segm_downsampling_rate*2), \
+                                  batch_resized_width // (self.segm_downsampling_rate*2)).long()
+        batch_segms_4 = torch.zeros(self.batch_per_gpu, batch_resized_height // (self.segm_downsampling_rate*4), \
+                                  batch_resized_width // (self.segm_downsampling_rate*4)).long()
 
         for i in range(self.batch_per_gpu):
             this_record = batch_records[i]
@@ -138,6 +142,15 @@ class TrainDataset(torchdata.Dataset):
             segm = imresize(segm_rounded, (segm_rounded.shape[0] // self.segm_downsampling_rate, \
                                            segm_rounded.shape[1] // self.segm_downsampling_rate), \
                             interp='nearest')
+
+            segm_2 = imresize(segm_rounded, (segm_rounded.shape[0] // (self.segm_downsampling_rate*2), \
+                                           segm_rounded.shape[1] // (self.segm_downsampling_rate*2)), \
+                            interp='nearest')
+
+            segm_4 = imresize(segm_rounded, (segm_rounded.shape[0] // (self.segm_downsampling_rate*4), \
+                                           segm_rounded.shape[1] // (self.segm_downsampling_rate*4)), \
+                            interp='nearest')
+
              # image to float
             img = img.astype(np.float32)[:, :, ::-1] # RGB to BGR!!!
             img = img.transpose((2, 0, 1))
@@ -145,11 +158,17 @@ class TrainDataset(torchdata.Dataset):
 
             batch_images[i][:, :img.shape[1], :img.shape[2]] = img
             batch_segms[i][:segm.shape[0], :segm.shape[1]] = torch.from_numpy(segm.astype(np.int)).long()
+            batch_segms_2[i][:segm_2.shape[0], :segm_2.shape[1]] = torch.from_numpy(segm_2.astype(np.int)).long()
+            batch_segms_4[i][:segm_4.shape[0], :segm_4.shape[1]] = torch.from_numpy(segm_4.astype(np.int)).long()
 
         batch_segms = batch_segms - 1 # label from -1 to 149
+        batch_segms_2 = batch_segms_2 - 1
+        batch_segms_4 = batch_segms_4 - 1
         output = dict()
         output['img_data'] = batch_images
         output['seg_label'] = batch_segms
+        output['seg_label_2'] = batch_segms_2
+        output['seg_label_4'] = batch_segms_4
         return output
 
     def __len__(self):

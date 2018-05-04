@@ -158,6 +158,9 @@ def main(args):
     if args.arch_decoder.endswith('deepsup'):
         segmentation_module = SegmentationModule(
             net_encoder, net_decoder, crit, args.deep_sup_scale)
+    elif args.arch_decoder == 'quadnet':
+        segmentation_module = SegmentationModule(
+            net_encoder, net_decoder, crit, args.deep_sup_scale, True)
     else:
         segmentation_module = SegmentationModule(
             net_encoder, net_decoder, crit)
@@ -235,7 +238,7 @@ if __name__ == '__main__':
     # optimization related arguments
     parser.add_argument('--num_gpus', default=1, type=int,
                         help='number of gpus to use')
-    parser.add_argument('--batch_size_per_gpu', default=2, type=int,
+    parser.add_argument('--batch_size_per_gpu', default=1, type=int,
                         help='input batch size')
     parser.add_argument('--num_epoch', default=20, type=int,
                         help='epochs to train for')
@@ -252,8 +255,8 @@ if __name__ == '__main__':
                         help='momentum for sgd, beta1 for adam')
     parser.add_argument('--weight_decay', default=1e-4, type=float,
                         help='weights regularizer')
-    parser.add_argument('--deep_sup_scale', default=0.4, type=float,
-                        help='the weight of deep supervision loss')
+    parser.add_argument('--deep_sup_scale', default=0.5, type=float,
+                        help='the weight for scaling lower resoultion losses')
     parser.add_argument('--fix_bn', default=0, type=int,
                         help='fix bn params')
 
@@ -266,7 +269,7 @@ if __name__ == '__main__':
                         help='input image size of short edge (int or list)')
     parser.add_argument('--imgMaxSize', default=1000, type=int,
                         help='maximum input image size of long edge')
-    parser.add_argument('--padding_constant', default=16, type=int,
+    parser.add_argument('--padding_constant', default=32, type=int,
                         help='maxmimum downsampling rate of the network')
     parser.add_argument('--segm_downsampling_rate', default=8, type=int,
                         help='downsampling rate of the segmentation label')
