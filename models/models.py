@@ -2,9 +2,8 @@ import torch
 import torch.nn as nn
 import torchvision
 from . import resnet, resnext
-import utils
 from lib.nn import SynchronizedBatchNorm2d
-
+from utils import gather
 
 class SegmentationModuleBase(nn.Module):
     def __init__(self):
@@ -20,57 +19,30 @@ class SegmentationModuleBase(nn.Module):
 
 
 class SegmentationModule(SegmentationModuleBase):
-    def __init__(self, net_enc, net_dec, crit, deep_sup_scale=None, is_quad=True):
+    def __init__(self, net_enc, net_dec, crit, deep_sup_scale=None):
         super(SegmentationModule, self).__init__()
         self.encoder = net_enc
         self.decoder = net_dec
         self.crit = crit
         self.deep_sup_scale = deep_sup_scale
-        self.is_quad = is_quad
-        if is_quad:
-            self.av = nn.AvgPool2d(2, 2)
 
     def forward(self, feed_dict, *, segSize=None):
+        # feed_dict = feed_dict[0] # weird fix for single GPU debugging
         if segSize is None: # training
-            if self.is_quad:
-                # feed_dict = feed_dict[0] # seems to be an issue if run on single GPU
-                pred, pred_multiscale = self.decoder(self.encoder(feed_dict['img_data'].cuda(), return_feature_maps=True))
-                (pred_2, pred_4, pred_8, pred_16, pred_32) = pred_multiscale
-            elif self.deep_sup_scale is not None: # use deep supervision technique
-                (pred, pred_deepsup) = self.decoder(self.encoder(feed_dict['img_data'], return_feature_maps=True))
-                loss = self.crit(pred, feed_dict['seg_label'])
+            if self.deep_sup_scale is not None: # use deep supervision technique
+                (pred, pred_deepsup) = self.decoder(self.encoder(feed_dict['img_data'].cuda(), return_feature_maps=True))
             else:
-                pred = self.decoder(self.encoder(feed_dict['img_data'], return_feature_maps=True))
-                loss = self.crit(pred, feed_dict['seg_label'])
+                pred = self.decoder(self.encoder(feed_dict['img_data'].cuda(), return_feature_maps=True))
 
+            loss = self.crit(pred, feed_dict['seg_label'].cuda())
             if self.deep_sup_scale is not None:
-                loss_deepsup = self.crit(pred_deepsup, feed_dict['seg_label'])
+                loss_deepsup = self.crit(pred_deepsup, feed_dict['seg_label'].cuda())
                 loss = loss + loss_deepsup * self.deep_sup_scale
-
-            if self.is_quad:
-                label = utils.to_one_hot(feed_dict['seg_label'].cuda(), 150)
-                label_2 = self.av(label)
-                label_4 = self.av(label_2)
-                label_8 = self.av(label_4)
-                label_16 = self.av(label_8)
-                label_32 = self.av(label_16)
-
-                loss = self.crit(pred, label)
-                loss_2 = self.crit(pred_2, label_2)
-                loss_4 = self.crit(pred_4, label_4)
-                loss_8 = self.crit(pred_8, label_8)
-                loss_16 = self.crit(pred_16, label_16)
-                loss_32 = self.crit(pred_32, label_32)
-
-                loss = loss + loss_2 + loss_4 + loss_8 + loss_16 + loss_32
 
             acc = self.pixel_acc(pred, feed_dict['seg_label'].cuda())
             return loss, acc
         else: # inference
-            if self.is_quad:
-                pred, _ = self.decoder(self.encoder(feed_dict['img_data'], return_feature_maps=True), segSize=segSize)
-            else:
-                pred = self.decoder(self.encoder(feed_dict['img_data'], return_feature_maps=True), segSize=segSize)
+            pred = self.decoder(self.encoder(feed_dict['img_data'].cuda(), return_feature_maps=True), segSize=segSize)
             return pred
 
 
@@ -83,15 +55,6 @@ def conv3x3(in_planes, out_planes, stride=1, has_bias=False):
 def conv3x3_bn_relu(in_planes, out_planes, stride=1):
     return nn.Sequential(
             conv3x3(in_planes, out_planes, stride),
-            SynchronizedBatchNorm2d(out_planes),
-            nn.ReLU(inplace=True),
-            )
-
-
-def conv_bn_relu(in_planes, out_planes, kernel_size=1, stride=1, padding=0, bias=False):
-    return nn.Sequential(
-            nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, stride=stride,
-                  padding=padding, bias=bias),
             SynchronizedBatchNorm2d(out_planes),
             nn.ReLU(inplace=True),
             )
@@ -112,13 +75,16 @@ class ModelBuilder():
     def build_encoder(self, arch='resnet50_dilated8', fc_dim=512, weights=''):
         pretrained = True if len(weights) == 0 else False
         if arch == 'resnet34':
+            raise NotImplementedError
             orig_resnet = resnet.__dict__['resnet34'](pretrained=pretrained)
             net_encoder = Resnet(orig_resnet)
         elif arch == 'resnet34_dilated8':
+            raise NotImplementedError
             orig_resnet = resnet.__dict__['resnet34'](pretrained=pretrained)
             net_encoder = ResnetDilated(orig_resnet,
                                         dilate_scale=8)
         elif arch == 'resnet34_dilated16':
+            raise NotImplementedError
             orig_resnet = resnet.__dict__['resnet34'](pretrained=pretrained)
             net_encoder = ResnetDilated(orig_resnet,
                                         dilate_scale=16)
@@ -201,7 +167,9 @@ class ModelBuilder():
         elif arch == 'quadnet':
             net_decoder = QuadNet(
                 num_class=num_class,
-                use_softmax=use_softmax)
+                fc_dim=fc_dim,
+                use_softmax=use_softmax,
+                quad_dim=128)
         else:
             raise Exception('Architecture undefined!')
 
@@ -234,11 +202,11 @@ class Resnet(nn.Module):
         self.layer4 = orig_resnet.layer4
 
     def forward(self, x, return_feature_maps=False):
-        conv_out = [x]
+        conv_out = []
 
         x = self.relu1(self.bn1(self.conv1(x)))
         x = self.relu2(self.bn2(self.conv2(x)))
-        x = self.relu3(self.bn3(self.conv3(x))); conv_out.append(x);
+        x = self.relu3(self.bn3(self.conv3(x)))
         x = self.maxpool(x)
 
         x = self.layer1(x); conv_out.append(x);
@@ -297,11 +265,11 @@ class ResnetDilated(nn.Module):
                     m.padding = (dilate, dilate)
 
     def forward(self, x, return_feature_maps=False):
-        conv_out = [x]
+        conv_out = []
 
         x = self.relu1(self.bn1(self.conv1(x)))
         x = self.relu2(self.bn2(self.conv2(x)))
-        x = self.relu3(self.bn3(self.conv3(x))); conv_out.append(x);
+        x = self.relu3(self.bn3(self.conv3(x)))
         x = self.maxpool(x)
 
         x = self.layer1(x); conv_out.append(x);
@@ -571,109 +539,91 @@ class UPerNet(nn.Module):
         return x
 
 
-# GCN based QuadNet
+# quadnet
 class QuadNet(nn.Module):
-    def __init__(self, num_class=150, quad_inplanes = (3, 128, 256, 512, 1024, 2048),
-                 quad_dim = 32, use_softmax=False, pixelShuffle=False):
+    def __init__(self, num_class=150, fc_dim=4096,
+                 use_softmax=False, pool_scales=(1, 2, 3, 6),
+                 quad_inplanes=(256,512,1024,2048), quad_dim=128):
         super(QuadNet, self).__init__()
         self.use_softmax = use_softmax
-        self.pixelShuffle = pixelShuffle
 
-        # channel compression
-        self.compress_s_32 = conv_bn_relu(quad_inplanes[5], quad_dim, 1, 1, 0, bias=False)
-        self.compress_s_16 = conv_bn_relu(quad_inplanes[4], quad_dim, 1, 1, 0, bias=False)
-        self.compress_s_8 = conv_bn_relu(quad_inplanes[3], quad_dim, 1, 1, 0, bias=False)
-        self.compress_s_4 = conv_bn_relu(quad_inplanes[2], quad_dim, 1, 1, 0, bias=False)
-        self.compress_s_2 = conv_bn_relu(quad_inplanes[1], quad_dim, 1, 1, 0, bias=False)
-        self.compress_s = conv_bn_relu(quad_inplanes[0], quad_dim, 1, 1, 0, bias=False)
+        # PPM Module
+        self.ppm_pooling = []
+        self.ppm_conv = []
 
-        # graph convolutions
-        if self.pixelShuffle:
-            self.conv_s_16 = conv_bn_relu(quad_dim // 4 + quad_dim + 4 * quad_dim, quad_dim, 1, 1, 0, bias=False)
-            self.conv_s_8 = conv_bn_relu(quad_dim // 4 + quad_dim + 4 * quad_dim, quad_dim, 1, 1, 0, bias=False)
-            self.conv_s_4 = conv_bn_relu(quad_dim // 4 + quad_dim + 4 * quad_dim, quad_dim, 1, 1, 0, bias=False)
-            self.conv_s_2 = conv_bn_relu(quad_dim // 4 + quad_dim + 4 * quad_dim, quad_dim, 1, 1, 0, bias=False)
-            self.conv_s = conv_bn_relu(quad_dim // 4 + quad_dim, quad_dim, 1, 1, 0, bias=False)
-        else:
-            self.conv_s_16 = conv_bn_relu(quad_dim + quad_dim + 4 * quad_dim, quad_dim, 1, 1, 0, bias=False)
-            self.conv_s_8 = conv_bn_relu(quad_dim + quad_dim + 4 * quad_dim, quad_dim, 1, 1, 0, bias=False)
-            self.conv_s_4 = conv_bn_relu(quad_dim + quad_dim + 4 * quad_dim, quad_dim, 1, 1, 0, bias=False)
-            self.conv_s_2 = conv_bn_relu(quad_dim + quad_dim + 4 * quad_dim, quad_dim, 1, 1, 0, bias=False)
-            self.conv_s = conv_bn_relu(quad_dim + quad_dim, quad_dim, 1, 1, 0, bias=False)
+        for scale in pool_scales:
+            self.ppm_pooling.append(nn.AdaptiveAvgPool2d(scale))
+            self.ppm_conv.append(nn.Sequential(
+                nn.Conv2d(fc_dim, 512, kernel_size=1, bias=False),
+                SynchronizedBatchNorm2d(512),
+                nn.ReLU(inplace=True)
+            ))
+        self.ppm_pooling = nn.ModuleList(self.ppm_pooling)
+        self.ppm_conv = nn.ModuleList(self.ppm_conv)
+        self.ppm_last_conv = conv3x3_bn_relu(fc_dim + len(pool_scales)*512, quad_dim, 1)
 
-        # last conv
-        # self.conv_last_s_32 = nn.Conv2d(quad_dim, num_class, 1, 1, 0, bias=False)
-        # self.conv_last_s_16 = nn.Conv2d(quad_dim, num_class, 1, 1, 0, bias=False)
-        # self.conv_last_s_8 = nn.Conv2d(quad_dim, num_class, 1, 1, 0, bias=False)
-        # self.conv_last_s_4 = nn.Conv2d(quad_dim, num_class, 1, 1, 0, bias=False)
-        # self.conv_last_s_2 = nn.Conv2d(quad_dim, num_class, 1, 1, 0, bias=False)
-        # self.conv_last_s = nn.Conv2d(quad_dim, num_class, 1, 1, 0, bias=False)
+        # GCN Module
+        self.quad_in = []
+        for quad_inplane in quad_inplanes[:-1]:# skip the top layer
+            self.quad_in.append(nn.Sequential(
+                nn.Conv2d(quad_inplane, quad_dim, kernel_size=1, bias=False),
+                SynchronizedBatchNorm2d(quad_dim),
+                nn.ReLU(inplace=True)
+            ))
+        self.quad_in = nn.ModuleList(self.quad_in)
 
-        self.conv_last_s_32 = conv_bn_relu(quad_dim, num_class, 1, 1, 0, bias=False)
-        if self.pixelShuffle:
-            self.conv_last_s_16 = conv_bn_relu(quad_dim // 4 + quad_dim + 4 * quad_dim, num_class, 1, 1, 0, bias=False)
-            self.conv_last_s_8 = conv_bn_relu(quad_dim // 4 + quad_dim + 4 * quad_dim, num_class, 1, 1, 0, bias=False)
-            self.conv_last_s_4 = conv_bn_relu(quad_dim // 4 + quad_dim + 4 * quad_dim, num_class, 1, 1, 0, bias=False)
-            self.conv_last_s_2 = conv_bn_relu(quad_dim // 4 + quad_dim + 4 * quad_dim, num_class, 1, 1, 0, bias=False)
-            self.conv_last_s = conv_bn_relu(quad_dim // 4 + quad_dim, num_class, 1, 1, 0, bias=False)
-        else:
-            self.conv_last_s_16 = conv_bn_relu(quad_dim + quad_dim + 4 * quad_dim, num_class, 1, 1, 0, bias=False)
-            self.conv_last_s_8 = conv_bn_relu(quad_dim + quad_dim + 4 * quad_dim, num_class, 1, 1, 0, bias=False)
-            self.conv_last_s_4 = conv_bn_relu(quad_dim + quad_dim + 4 * quad_dim, num_class, 1, 1, 0, bias=False)
-            self.conv_last_s_2 = conv_bn_relu(quad_dim + quad_dim + 4 * quad_dim, num_class, 1, 1, 0, bias=False)
-            self.conv_last_s = conv_bn_relu(quad_dim + quad_dim, num_class, 1, 1, 0, bias=False)
+        self.quad_gcn = []
+        for i in range(len(quad_inplanes) - 2):  # skip the top and bottom layer
+            self.quad_gcn.append(nn.Sequential(
+                nn.Conv2d(quad_dim*6, quad_dim, kernel_size=1, bias=False),
+                SynchronizedBatchNorm2d(quad_dim),
+                nn.ReLU(inplace=True)
+            ))
+        self.quad_gcn = nn.ModuleList(self.quad_gcn)
+
+        self.quad_out = []
+        for i in range(len(quad_inplanes) - 2): # skip the top and bottom layer
+            self.quad_out.append(nn.Conv2d(quad_dim, num_class, kernel_size=1, bias=False))
+        self.quad_out = nn.ModuleList(self.quad_out)
+
 
     def forward(self, conv_out, segSize=None):
+        conv5 = conv_out[-1]
 
-        [s, s_2, s_4, s_8, s_16, s_32] = conv_out
+        input_size = conv5.size()
+        ppm_out = [conv5]
+        for pool_scale, pool_conv in zip(self.ppm_pooling, self.ppm_conv):
+            ppm_out.append(pool_conv(nn.functional.upsample(
+                pool_scale(conv5),
+                (input_size[2], input_size[3]),
+                mode='bilinear')))
+        ppm_out = torch.cat(ppm_out, 1)
+        f = self.ppm_last_conv(ppm_out)
 
-        # channel compression for graph convolution features
-        s_32 = self.compress_s_32(s_32)
-        s_16 = self.compress_s_16(s_16)
-        s_8 = self.compress_s_8(s_8)
-        s_4 = self.compress_s_4(s_4)
-        s_2 = self.compress_s_2(s_2)
-        s = self.compress_s(s)
+        quad_ins = [f]
+        for i in reversed(range(len(conv_out)-1)):
+            quad_ins.append(self.quad_in[i](conv_out[i]))
 
-        # graph convolutions with pixel shuffle and gather
-        if self.pixelShuffle:
-            ps = nn.PixelShuffle(2)
-        else:
-            ps = nn.Upsample(scale_factor=2)
+        quad_preds = []
+        for i in reversed(range(1,len(conv_out)-1)):
+            conv_eq = quad_ins[i]
 
-        s_16 = self.conv_s_16(torch.cat([ps(s_32), s_16, utils.gather(s_8)], 1))
-        s_8 = self.conv_s_8(torch.cat([ps(s_16), s_8, utils.gather(s_4)], 1))
-        s_4 = self.conv_s_4(torch.cat([ps(s_8), s_4, utils.gather(s_2)], 1))
-        s_2 = self.conv_s_2(torch.cat([ps(s_4), s_2, utils.gather(s)], 1))
-        s = self.conv_s(torch.cat([ps(s_2), s], 1))
+            conv_minus = quad_ins[i-1]
+            conv_minus = nn.functional.upsample(conv_minus, size=conv_eq.size()[2:], mode='bilinear') # top-down branch
 
-        # label prediction from graph node representations
-        # x_32 = self.conv_last_s_32(s_32)
-        # x_16 = self.conv_last_s_16(s_16)
-        # x_8 = self.conv_last_s_8(s_8)
-        # x_4 = self.conv_last_s_4(s_4)
-        # x_2 = self.conv_last_s_2(s_2)
-        # x = self.conv_last_s(s)
+            conv_plus = quad_ins[i+1]
+            conv_plus = gather(conv_plus)
 
-        x_32 = self.conv_last_s_32(s_32)
-        x_16 = self.conv_last_s_16(torch.cat([ps(s_32), s_16, utils.gather(s_8)], 1))
-        x_8 = self.conv_last_s_8(torch.cat([ps(s_16), s_8, utils.gather(s_4)], 1))
-        x_4 = self.conv_last_s_4(torch.cat([ps(s_8), s_4, utils.gather(s_2)], 1))
-        x_2 = self.conv_last_s_2(torch.cat([ps(s_4), s_2, utils.gather(s)], 1))
-        x = self.conv_last_s(torch.cat([ps(s_2), s], 1))
+            gcn_in = torch.cat([conv_eq, conv_minus, conv_plus], 1)
+            quad_preds.append(self.quad_out[i-1](self.quad_gcn[i-1](gcn_in)))
+
+        x = quad_preds[0]
 
         if self.use_softmax:  # is True during inference
             x = nn.functional.upsample(x, size=segSize, mode='bilinear')
             x = nn.functional.softmax(x, dim=1)
             return x
 
-        x_32 = nn.functional.log_softmax(x_32, dim=1)
-        x_16 = nn.functional.log_softmax(x_16, dim=1)
-        x_8 = nn.functional.log_softmax(x_8, dim=1)
-        x_4 = nn.functional.log_softmax(x_4, dim=1)
-        x_2 = nn.functional.log_softmax(x_2, dim=1)
         x = nn.functional.log_softmax(x, dim=1)
 
-        x_multiscale = (x_2, x_4, x_8, x_16, x_32)
-
-        return x, x_multiscale
+        return x

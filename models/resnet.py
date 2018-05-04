@@ -11,11 +11,10 @@ except ImportError:
     from urllib.request import urlretrieve
 
 
-__all__ = ['ResNet', 'resnet34', 'resnet50', 'resnet101'] # resnet101 is coming soon!
+__all__ = ['ResNet', 'resnet50', 'resnet101'] # resnet101 is coming soon!
 
 
 model_urls = {
-    'resnet34': 'https://www.dropbox.com/s/r49vzthbmc1sk46/resnet34-places365.pth',
     'resnet50': 'http://sceneparsing.csail.mit.edu/model/pretrained_resnet/resnet50-imagenet.pth',
     'resnet101': 'http://sceneparsing.csail.mit.edu/model/pretrained_resnet/resnet101-imagenet.pth'
 }
@@ -100,8 +99,8 @@ class Bottleneck(nn.Module):
 
 class ResNet(nn.Module):
 
-    def __init__(self, block, layers, num_classes=1000, inplanes=128):
-        self.inplanes = inplanes
+    def __init__(self, block, layers, num_classes=1000):
+        self.inplanes = 128
         super(ResNet, self).__init__()
         self.conv1 = conv3x3(3, 64, stride=2)
         self.bn1 = SynchronizedBatchNorm2d(64)
@@ -174,19 +173,19 @@ def resnet18(pretrained=False, **kwargs):
     if pretrained:
         model.load_state_dict(load_url(model_urls['resnet18']))
     return model
-'''
 
-def resnet34(pretrained=False):
+
+def resnet34(pretrained=False, **kwargs):
     """Constructs a ResNet-34 model.
 
     Args:
         pretrained (bool): If True, returns a model pre-trained on Places
     """
-    model = ResNet(BasicBlock, [3, 4, 6, 3], num_classes=365, inplanes=64)
+    model = ResNet(BasicBlock, [3, 4, 6, 3], **kwargs)
     if pretrained:
         model.load_state_dict(load_url(model_urls['resnet34']))
     return model
-
+'''
 
 def resnet50(pretrained=False, **kwargs):
     """Constructs a ResNet-50 model.

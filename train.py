@@ -153,8 +153,7 @@ def main(args):
         num_class=args.num_class,
         weights=args.weights_decoder)
 
-    #crit = nn.NLLLoss(ignore_index=-1)
-    crit = nn.KLDivLoss()
+    crit = nn.NLLLoss(ignore_index=-1)
 
     if args.arch_decoder.endswith('deepsup'):
         segmentation_module = SegmentationModule(
@@ -234,9 +233,9 @@ if __name__ == '__main__':
                         default='./data/')
 
     # optimization related arguments
-    parser.add_argument('--num_gpus', default=2, type=int,
+    parser.add_argument('--num_gpus', default=1, type=int,
                         help='number of gpus to use')
-    parser.add_argument('--batch_size_per_gpu', default=1, type=int,
+    parser.add_argument('--batch_size_per_gpu', default=2, type=int,
                         help='input batch size')
     parser.add_argument('--num_epoch', default=20, type=int,
                         help='epochs to train for')
@@ -253,7 +252,7 @@ if __name__ == '__main__':
                         help='momentum for sgd, beta1 for adam')
     parser.add_argument('--weight_decay', default=1e-4, type=float,
                         help='weights regularizer')
-    parser.add_argument('--deep_sup_scale', default=0, type=float,
+    parser.add_argument('--deep_sup_scale', default=0.4, type=float,
                         help='the weight of deep supervision loss')
     parser.add_argument('--fix_bn', default=0, type=int,
                         help='fix bn params')
@@ -261,15 +260,15 @@ if __name__ == '__main__':
     # Data related arguments
     parser.add_argument('--num_class', default=150, type=int,
                         help='number of classes')
-    parser.add_argument('--workers', default=16, type=int,
+    parser.add_argument('--workers', default=8, type=int,
                         help='number of data loading workers')
     parser.add_argument('--imgSize', default=[300,375,450,525,600], nargs='+', type=int,
                         help='input image size of short edge (int or list)')
     parser.add_argument('--imgMaxSize', default=1000, type=int,
                         help='maximum input image size of long edge')
-    parser.add_argument('--padding_constant', default=32, type=int,
+    parser.add_argument('--padding_constant', default=16, type=int,
                         help='maxmimum downsampling rate of the network')
-    parser.add_argument('--segm_downsampling_rate', default=1, type=int,
+    parser.add_argument('--segm_downsampling_rate', default=8, type=int,
                         help='downsampling rate of the segmentation label')
     parser.add_argument('--random_flip', default=True, type=bool,
                         help='if horizontally flip images when training')
