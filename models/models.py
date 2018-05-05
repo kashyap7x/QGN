@@ -557,7 +557,7 @@ class UPerNet(nn.Module):
 
 # quadnet
 class QuadNet(nn.Module):
-    def __init__(self, num_class=150, fc_dim=4096,
+    def __init__(self, num_class=150, fc_dim=2048,
                  use_softmax=False, pool_scales=(1, 2, 3, 6),
                  quad_inplanes=(256,512,1024,2048), quad_dim=256):
         super(QuadNet, self).__init__()
@@ -606,10 +606,10 @@ class QuadNet(nn.Module):
         input_size = conv5.size()
         ppm_out = [conv5]
         for pool_scale, pool_conv in zip(self.ppm_pooling, self.ppm_conv):
-            ppm_out.append(pool_conv(nn.functional.upsample(
-                pool_scale(conv5),
+            ppm_out.append(nn.functional.upsample(
+                pool_conv(pool_scale(conv5)),
                 (input_size[2], input_size[3]),
-                mode='bilinear')))
+                mode='bilinear'))
         ppm_out = torch.cat(ppm_out, 1)
         f = self.ppm_last_conv(ppm_out)
 
