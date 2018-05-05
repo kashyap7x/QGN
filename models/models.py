@@ -185,7 +185,7 @@ class ModelBuilder():
                 num_class=num_class,
                 fc_dim=fc_dim,
                 use_softmax=use_softmax,
-                quad_dim=128)
+                quad_dim=256)
         else:
             raise Exception('Architecture undefined!')
 
@@ -559,7 +559,7 @@ class UPerNet(nn.Module):
 class QuadNet(nn.Module):
     def __init__(self, num_class=150, fc_dim=4096,
                  use_softmax=False, pool_scales=(1, 2, 3, 6),
-                 quad_inplanes=(256,512,1024,2048), quad_dim=128):
+                 quad_inplanes=(256,512,1024,2048), quad_dim=256):
         super(QuadNet, self).__init__()
         self.use_softmax = use_softmax
 
@@ -588,14 +588,11 @@ class QuadNet(nn.Module):
             ))
         self.quad_in = nn.ModuleList(self.quad_in)
 
-        self.quad_gcn = []
-        for i in range(len(quad_inplanes) - 2):  # skip the top and bottom layer
-            self.quad_gcn.append(nn.Sequential(
+        self.quad_gcn = nn.Sequential(
                 nn.Conv2d(quad_dim*6, quad_dim, kernel_size=1, bias=False),
                 SynchronizedBatchNorm2d(quad_dim),
                 nn.ReLU(inplace=True)
-            ))
-        self.quad_gcn = nn.ModuleList(self.quad_gcn)
+                )
 
         self.quad_out = []
         for i in range(len(quad_inplanes) - 1): # skip the bottom layer
@@ -631,7 +628,7 @@ class QuadNet(nn.Module):
             conv_plus = gather(conv_plus)
 
             gcn_in = torch.cat([conv_eq, conv_minus, conv_plus], 1)
-            quad_ins[i] = self.quad_gcn[i-1](gcn_in)
+            quad_ins[i] = self.quad_gcn(gcn_in)
 
             quad_preds.append(self.quad_out[i](quad_ins[i]))
 
