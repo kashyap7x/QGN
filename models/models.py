@@ -28,8 +28,6 @@ class SegmentationModule(SegmentationModuleBase):
         self.quad_sup = quad_sup
 
     def forward(self, feed_dict, *, segSize=None):
-        if torch.cuda.device_count()==1:
-            feed_dict = feed_dict[0] # weird fix for single GPU debugging
         inputs = feed_dict['img_data'].cuda()
         labels_orig_scale = feed_dict['seg_label'].cuda()
         labels_scaled = []
