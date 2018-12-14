@@ -22,7 +22,11 @@ class TrainDataset(torchdata.Dataset):
         # down sampling rate of segm labe
         self.segm_downsampling_rate = opt.segm_downsampling_rate
         self.batch_per_gpu = batch_per_gpu
-
+        if opt.transform_dict:
+            self.transform_dict = json.loads(opt.transform_dict)
+        else:
+            self.transform_dict = None
+        
         # classify images into two classes: 1. h > w and 2. h <= w
         self.batch_record_list = [[], []]
 
@@ -155,15 +159,29 @@ class TrainDataset(torchdata.Dataset):
             img = img.astype(np.float32)[:, :, ::-1] # RGB to BGR!!!
             img = img.transpose((2, 0, 1))
             img = self.img_transform(torch.from_numpy(img.copy()))
-
+            
+            seg_copy = segm.copy().astype(np.int)
+            seg_copy_2 = segm_2.copy().astype(np.int)
+            seg_copy_4 = segm_4.copy().astype(np.int)
+                
+            if self.transform_dict:
+                for k, v in self.transform_dict.items():
+                    seg_copy[segm == int(k)] = v
+                    segm = seg_copy
+                    seg_copy_2[segm_2 == int(k)] = v
+                    segm_2 = seg_copy_2
+                    seg_copy_4[segm_4 == int(k)] = v
+                    segm_4 = seg_copy_4
+            else:
+                segm = seg_copy - 1 # label from -1 to 149
+                segm_2 = seg_copy_2 - 1
+                segm_4 = seg_copy_4 - 1
+            
             batch_images[i][:, :img.shape[1], :img.shape[2]] = img
             batch_segms[i][:segm.shape[0], :segm.shape[1]] = torch.from_numpy(segm.astype(np.int)).long()
             batch_segms_2[i][:segm_2.shape[0], :segm_2.shape[1]] = torch.from_numpy(segm_2.astype(np.int)).long()
             batch_segms_4[i][:segm_4.shape[0], :segm_4.shape[1]] = torch.from_numpy(segm_4.astype(np.int)).long()
-
-        batch_segms = batch_segms - 1 # label from -1 to 149
-        batch_segms_2 = batch_segms_2 - 1
-        batch_segms_4 = batch_segms_4 - 1
+            
         output = dict()
         output['img_data'] = batch_images
         output['seg_label'] = batch_segms
@@ -183,7 +201,11 @@ class ValDataset(torchdata.Dataset):
         self.imgMaxSize = opt.imgMaxSize
         # max down sampling rate of network to avoid rounding during conv or pooling
         self.padding_constant = opt.padding_constant
-
+        if opt.transform_dict:
+            self.transform_dict = json.loads(opt.transform_dict)
+        else:
+            self.transform_dict = None
+        
         # mean and std
         self.img_transform = transforms.Compose([
             transforms.Normalize(mean=[102.9801, 115.9465, 122.7717], std=[1., 1., 1.])
@@ -234,11 +256,18 @@ class ValDataset(torchdata.Dataset):
             img_resized = torch.unsqueeze(img_resized, 0)
             img_resized_list.append(img_resized)
 
+        seg_copy = segm.copy().astype(np.int)
+        
+        if self.transform_dict:
+            for k, v in self.transform_dict.items():
+                seg_copy[segm == int(k)] = v
+                segm = seg_copy
+        else:
+            segm = seg_copy - 1 # label from -1 to 149
+            
         segm = torch.from_numpy(segm.astype(np.int)).long()
-
         batch_segms = torch.unsqueeze(segm, 0)
 
-        batch_segms = batch_segms - 1 # label from -1 to 149
         output = dict()
         output['img_ori'] = img.copy()
         output['img_data'] = [x.contiguous() for x in img_resized_list]
@@ -258,7 +287,7 @@ class TestDataset(torchdata.Dataset):
         self.padding_constant = opt.padding_constant
         # down sampling rate of segm labe
         self.segm_downsampling_rate = opt.segm_downsampling_rate
-
+        
         # mean and std
         self.img_transform = transforms.Compose([
             transforms.Normalize(mean=[102.9801, 115.9465, 122.7717], std=[1., 1., 1.])

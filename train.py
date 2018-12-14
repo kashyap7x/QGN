@@ -214,8 +214,8 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
     # Model related arguments
-    parser.add_argument('--id', default='baseline',
-                        help="a name for identifying the model")
+    parser.add_argument('--id', default='ade20k',
+                        help="a name for identifying the experiment")
     parser.add_argument('--arch_encoder', default='resnet50',
                         help="architecture of net_encoder")
     parser.add_argument('--arch_decoder', default='quadnet',
@@ -229,12 +229,12 @@ if __name__ == '__main__':
 
     # Path related arguments
     parser.add_argument('--list_train',
-                        default='./data/train.odgt')
+                        default='./data/train_ade20k.odgt')
     parser.add_argument('--list_val',
-                        default='./data/validation.odgt')
-    parser.add_argument('--root_dataset',
+                        default='./data/validation_ade20k.odgt')
+    parser.add_argument('--root_dataset', 
                         default='./data/')
-
+                        
     # optimization related arguments
     parser.add_argument('--num_gpus', default=3, type=int,
                         help='number of gpus to use')
@@ -263,6 +263,8 @@ if __name__ == '__main__':
     # Data related arguments
     parser.add_argument('--num_class', default=150, type=int,
                         help='number of classes')
+    parser.add_argument('--transform_dict', default=None,
+                        help='dictionary to map label ids to train ids')
     parser.add_argument('--workers', default=8, type=int,
                         help='number of data loading workers')
     parser.add_argument('--imgSize', default=[300,375,450,525,600], nargs='+', type=int,
