@@ -81,7 +81,7 @@ def checkpoint(nets, history, args, epoch_num):
 
     # dict_encoder_save = {k: v for k, v in dict_encoder.items() if not (k.endswith('_tmp_running_mean') or k.endswith('tmp_running_var'))}
     # dict_decoder_save = {k: v for k, v in dict_decoder.items() if not (k.endswith('_tmp_running_mean') or k.endswith('tmp_running_var'))}
-    
+
     torch.save(history,
                '{}/history_{}'.format(args.ckpt, suffix_latest))
     torch.save(dict_encoder,
@@ -232,9 +232,9 @@ if __name__ == '__main__':
                         default='./data/train_ade20k.odgt')
     parser.add_argument('--list_val',
                         default='./data/validation_ade20k.odgt')
-    parser.add_argument('--root_dataset', 
+    parser.add_argument('--root_dataset',
                         default='./data/')
-                        
+
     # optimization related arguments
     parser.add_argument('--num_gpus', default=3, type=int,
                         help='number of gpus to use')
@@ -271,6 +271,8 @@ if __name__ == '__main__':
                         help='input image size of short edge (int or list)')
     parser.add_argument('--imgMaxSize', default=1000, type=int,
                         help='maximum input image size of long edge')
+    parser.add_argument('--cropSize', default=0, type=int,
+                        help='size of random crop during training (0 for no crop)')
     parser.add_argument('--padding_constant', default=32, type=int,
                         help='maxmimum downsampling rate of the network')
     parser.add_argument('--segm_downsampling_rate', default=8, type=int,

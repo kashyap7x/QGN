@@ -22,11 +22,15 @@ class TrainDataset(torchdata.Dataset):
         # down sampling rate of segm labe
         self.segm_downsampling_rate = opt.segm_downsampling_rate
         self.batch_per_gpu = batch_per_gpu
+        self.transform_dict = None
+        self.crop = None
+
         if opt.transform_dict:
             self.transform_dict = json.loads(opt.transform_dict)
-        else:
-            self.transform_dict = None
-        
+
+        if opt.cropSize > 0:
+            self.crop = opt.cropSize
+
         # classify images into two classes: 1. h > w and 2. h <= w
         self.batch_record_list = [[], []]
 
@@ -137,6 +141,12 @@ class TrainDataset(torchdata.Dataset):
             img = imresize(img, (batch_resized_size[i, 0], batch_resized_size[i, 1]), interp='bilinear')
             segm = imresize(segm, (batch_resized_size[i, 0], batch_resized_size[i, 1]), interp='nearest')
 
+            if self.crop:
+                x1 = np.random.randint(batch_resized_size[i, 1] - self.crop)
+                y1 = np.random.randint(batch_resized_size[i, 0] - self.crop)
+                img = img[y1: y1 + self.crop, x1: x1 + self.crop, :]
+                segm = segm[y1: y1 + self.crop, x1: x1 + self.crop]
+
             # to avoid seg label misalignment
             segm_rounded_height = round2nearest_multiple(segm.shape[0], self.segm_downsampling_rate)
             segm_rounded_width = round2nearest_multiple(segm.shape[1], self.segm_downsampling_rate)
@@ -159,11 +169,11 @@ class TrainDataset(torchdata.Dataset):
             img = img.astype(np.float32)[:, :, ::-1] # RGB to BGR!!!
             img = img.transpose((2, 0, 1))
             img = self.img_transform(torch.from_numpy(img.copy()))
-            
+
             seg_copy = segm.copy().astype(np.int)
             seg_copy_2 = segm_2.copy().astype(np.int)
             seg_copy_4 = segm_4.copy().astype(np.int)
-                
+
             if self.transform_dict:
                 for k, v in self.transform_dict.items():
                     seg_copy[segm == int(k)] = v
@@ -176,12 +186,12 @@ class TrainDataset(torchdata.Dataset):
                 segm = seg_copy - 1 # label from -1 to 149
                 segm_2 = seg_copy_2 - 1
                 segm_4 = seg_copy_4 - 1
-            
+
             batch_images[i][:, :img.shape[1], :img.shape[2]] = img
             batch_segms[i][:segm.shape[0], :segm.shape[1]] = torch.from_numpy(segm.astype(np.int)).long()
             batch_segms_2[i][:segm_2.shape[0], :segm_2.shape[1]] = torch.from_numpy(segm_2.astype(np.int)).long()
             batch_segms_4[i][:segm_4.shape[0], :segm_4.shape[1]] = torch.from_numpy(segm_4.astype(np.int)).long()
-            
+
         output = dict()
         output['img_data'] = batch_images
         output['seg_label'] = batch_segms
@@ -205,7 +215,7 @@ class ValDataset(torchdata.Dataset):
             self.transform_dict = json.loads(opt.transform_dict)
         else:
             self.transform_dict = None
-        
+
         # mean and std
         self.img_transform = transforms.Compose([
             transforms.Normalize(mean=[102.9801, 115.9465, 122.7717], std=[1., 1., 1.])
@@ -257,14 +267,14 @@ class ValDataset(torchdata.Dataset):
             img_resized_list.append(img_resized)
 
         seg_copy = segm.copy().astype(np.int)
-        
+
         if self.transform_dict:
             for k, v in self.transform_dict.items():
                 seg_copy[segm == int(k)] = v
                 segm = seg_copy
         else:
             segm = seg_copy - 1 # label from -1 to 149
-            
+
         segm = torch.from_numpy(segm.astype(np.int)).long()
         batch_segms = torch.unsqueeze(segm, 0)
 
@@ -287,7 +297,7 @@ class TestDataset(torchdata.Dataset):
         self.padding_constant = opt.padding_constant
         # down sampling rate of segm labe
         self.segm_downsampling_rate = opt.segm_downsampling_rate
-        
+
         # mean and std
         self.img_transform = transforms.Compose([
             transforms.Normalize(mean=[102.9801, 115.9465, 122.7717], std=[1., 1., 1.])
