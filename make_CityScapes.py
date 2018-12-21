@@ -12,7 +12,6 @@ def make_CityScapes(mode, root, odgt):
     mask_path = os.path.join('gtFine_trainvaltest', 'gtFine', mode)
     mask_postfix = '_gtFine_labelIds.png'
     img_path = os.path.join('leftImg8bit_trainvaltest', 'leftImg8bit', mode)
-    items = []
     categories = os.listdir(os.path.join(root, img_path))
     with odgt.open(mode='w+') as fo:
         for c in categories:
@@ -20,12 +19,12 @@ def make_CityScapes(mode, root, odgt):
             for it in c_items:
                 item = {"width": 2048, "fpath_img": os.path.join(img_path, c, it + '_leftImg8bit.png'), "height": 1024, "fpath_segm": os.path.join(mask_path, c, it + mask_postfix)}
                 fo.write(f'{json.dumps(item)}\n')
-    
-    
-def main():   
+
+
+def main():
     make_CityScapes('train', cityscapes_root, train_odgt)
     make_CityScapes('val', cityscapes_root, val_odgt)
-        
-        
+
+
 if __name__ == '__main__':
     main()
