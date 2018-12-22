@@ -11,6 +11,7 @@ import torch.nn as nn
 # Our libs
 from dataset import TrainDataset
 from models import ModelBuilder, SegmentationModule
+from eval_multipro import eval_train
 from utils import AverageMeter
 from lib.nn import UserScatteredDataParallel, user_scattered_collate, patch_replication_callback
 import lib.utils.data as torchdata
@@ -205,6 +206,9 @@ def main(args):
         # checkpointing
         checkpoint(nets, history, args, epoch)
 
+        # evaluation
+        eval_train(args)
+
     print('Training Done!')
 
 
@@ -261,6 +265,8 @@ if __name__ == '__main__':
                         help='fix bn params')
 
     # Data related arguments
+    parser.add_argument('--num_val', default=-1, type=int,
+                        help='number of images to evalutate')
     parser.add_argument('--num_class', default=150, type=int,
                         help='number of classes')
     parser.add_argument('--transform_dict', default=None,
@@ -286,6 +292,12 @@ if __name__ == '__main__':
                         help='folder to output checkpoints')
     parser.add_argument('--disp_iter', type=int, default=20,
                         help='frequency to display')
+    parser.add_argument('--visualize', action='store_true',
+                        help='output visualization?')
+    parser.add_argument('--result', default='./result',
+                        help='folder to output visualization results')
+    parser.add_argument('--gpu_id', default=0, type=int,
+                        help='gpu_id for evaluation')
 
     args = parser.parse_args()
     print("Input arguments:")
@@ -314,6 +326,10 @@ if __name__ == '__main__':
     args.ckpt = os.path.join(args.ckpt, args.id)
     if not os.path.isdir(args.ckpt):
         os.makedirs(args.ckpt)
+
+    args.result = os.path.join(args.result, args.id)
+    if not os.path.isdir(args.result):
+        os.makedirs(args.result)
 
     random.seed(args.seed)
     torch.manual_seed(args.seed)
