@@ -207,6 +207,8 @@ def main(args):
         checkpoint(nets, history, args, epoch)
 
         # evaluation
+        args.weights_encoder = os.path.join(args.ckpt, 'encoder_epoch_' + str(epoch) + '.pth')
+        args.weights_decoder = os.path.join(args.ckpt, 'decoder_epoch_' + str(epoch) + '.pth')
         eval_train(args)
 
     print('Training Done!')
@@ -265,7 +267,7 @@ if __name__ == '__main__':
                         help='fix bn params')
 
     # Data related arguments
-    parser.add_argument('--num_val', default=-1, type=int,
+    parser.add_argument('--num_val', default=200, type=int,
                         help='number of images to evalutate')
     parser.add_argument('--num_class', default=150, type=int,
                         help='number of classes')

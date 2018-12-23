@@ -23,7 +23,7 @@ from tqdm import tqdm
 
 
 def visualize_result(data, preds, args):
-    colors = loadmat('data/color150.mat')['colors']
+    colors = loadmat('data/color' + args.num_class + '.mat')['colors']
     (img, seg, info) = data
 
     # segmentation
@@ -157,6 +157,10 @@ def evaluate_train(segmentation_module, loader, args):
         acc_meter.update(acc, pix)
         intersection_meter.update(intersection)
         union_meter.update(union)
+        
+        if i % args.disp_iter == 0:
+            print('[{}] iter {}, accuracy: {}'
+                  .format(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), i, acc))
 
         # visualization
         if args.visualize:
