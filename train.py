@@ -6,6 +6,7 @@ import random
 import argparse
 from distutils.version import LooseVersion
 # Numerical libs
+import numpy as np
 import torch
 import torch.nn as nn
 # Our libs
@@ -141,6 +142,15 @@ def adjust_learning_rate(optimizers, cur_iter, args):
         param_group['lr'] = args.running_lr_decoder
 
 
+def adjust_crit_weights(nets, iou, args, enhance_weight = 2.0):
+    (net_encoder, net_decoder, crit) = nets
+    class_weight = np.ones([args.num_class], dtype=np.float32)
+    med = np.median(iou)
+    class_weight[np.where(iou<=med)] = enhance_weight
+    crit_new = nn.NLLLoss(ignore_index=-1, weight=torch.from_numpy(class_weight))
+    return (net_encoder, net_decoder, crit_new)
+
+
 def main(args):
     # Network Builders
     builder = ModelBuilder()
@@ -209,7 +219,10 @@ def main(args):
         # evaluation
         args.weights_encoder = os.path.join(args.ckpt, 'encoder_epoch_' + str(epoch) + '.pth')
         args.weights_decoder = os.path.join(args.ckpt, 'decoder_epoch_' + str(epoch) + '.pth')
-        eval_train(args)
+        iou = eval_train(args)
+
+        # adaptive class weighting
+        nets = adjust_crit_weights(nets, iou, args)
 
     print('Training Done!')
 

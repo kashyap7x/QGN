@@ -118,7 +118,7 @@ def worker(args, dev_id, start_idx, end_idx, result_queue):
     evaluate(segmentation_module, loader_val, args, dev_id, result_queue)
 
 
-def evaluate_train(segmentation_module, loader, args):
+def evaluate_simple(segmentation_module, loader, args):
     acc_meter = AverageMeter()
     intersection_meter = AverageMeter()
     union_meter = AverageMeter()
@@ -157,7 +157,7 @@ def evaluate_train(segmentation_module, loader, args):
         acc_meter.update(acc, pix)
         intersection_meter.update(intersection)
         union_meter.update(union)
-        
+
         if i % args.disp_iter == 0:
             print('[{}] iter {}, accuracy: {}'
                   .format(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), i, acc))
@@ -175,6 +175,8 @@ def evaluate_train(segmentation_module, loader, args):
     print('[Eval Summary]:')
     print('Mean IoU: {:.4}, Accuracy: {:.2f}%'
         .format(iou.mean(), acc_meter.average()*100))
+
+    return iou
 
 
 def eval_train(args):
@@ -209,9 +211,7 @@ def eval_train(args):
     segmentation_module.cuda()
 
     # Main loop
-    evaluate_train(segmentation_module, loader_val, args)
-
-    print('Evaluation Done!')
+    return evaluate_simple(segmentation_module, loader_val, args)
 
 
 def main(args):
