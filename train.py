@@ -158,11 +158,18 @@ def main(args):
         arch=args.arch_encoder,
         fc_dim=args.fc_dim,
         weights=args.weights_encoder)
-    net_decoder = builder.build_decoder(
-        arch=args.arch_decoder,
-        fc_dim=args.fc_dim,
-        num_class=args.num_class,
-        weights=args.weights_decoder)
+    if args.arch_decoder == 'quadnet':
+        net_decoder = builder.build_decoder(
+            arch=args.arch_decoder,
+            fc_dim=args.fc_dim,
+            num_class=args.num_class+1,
+            weights=args.weights_decoder)
+    else:
+        net_decoder = builder.build_decoder(
+            arch=args.arch_decoder,
+            fc_dim=args.fc_dim,
+            num_class=args.num_class,
+            weights=args.weights_decoder)
 
     crit = nn.NLLLoss(ignore_index=-1)
 

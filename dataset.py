@@ -6,10 +6,13 @@ import cv2
 from torchvision import transforms
 from scipy.misc import imread, imresize
 import numpy as np
+from data_utils.gen_labels import dense2quad
+
 
 # Round x to the nearest multiple of p and x' >= x
 def round2nearest_multiple(x, p):
     return ((x - 1) // p + 1) * p
+
 
 class TrainDataset(torchdata.Dataset):
     def __init__(self, odgt, opt, max_sample=-1, batch_per_gpu=1):
@@ -147,45 +150,47 @@ class TrainDataset(torchdata.Dataset):
                 img = img[y1: y1 + self.crop, x1: x1 + self.crop, :]
                 segm = segm[y1: y1 + self.crop, x1: x1 + self.crop]
 
+             # image to float
+            img = img.astype(np.float32)[:, :, ::-1] # RGB to BGR!!!
+            img = img.transpose((2, 0, 1))
+            img = self.img_transform(torch.from_numpy(img.copy()))
+
             # to avoid seg label misalignment
             segm_rounded_height = round2nearest_multiple(segm.shape[0], self.segm_downsampling_rate)
             segm_rounded_width = round2nearest_multiple(segm.shape[1], self.segm_downsampling_rate)
             segm_rounded = np.zeros((segm_rounded_height, segm_rounded_width), dtype='uint8')
             segm_rounded[:segm.shape[0], :segm.shape[1]] = segm
 
-            segm = imresize(segm_rounded, (segm_rounded.shape[0] // self.segm_downsampling_rate, \
-                                           segm_rounded.shape[1] // self.segm_downsampling_rate), \
-                            interp='nearest')
-
-            segm_2 = imresize(segm_rounded, (segm_rounded.shape[0] // (self.segm_downsampling_rate*2), \
-                                           segm_rounded.shape[1] // (self.segm_downsampling_rate*2)), \
-                            interp='nearest')
-
-            segm_4 = imresize(segm_rounded, (segm_rounded.shape[0] // (self.segm_downsampling_rate*4), \
-                                           segm_rounded.shape[1] // (self.segm_downsampling_rate*4)), \
-                            interp='nearest')
-
-             # image to float
-            img = img.astype(np.float32)[:, :, ::-1] # RGB to BGR!!!
-            img = img.transpose((2, 0, 1))
-            img = self.img_transform(torch.from_numpy(img.copy()))
-
-            seg_copy = segm.copy().astype(np.int)
-            seg_copy_2 = segm_2.copy().astype(np.int)
-            seg_copy_4 = segm_4.copy().astype(np.int)
+            seg_copy = segm_rounded.copy().astype(np.int)
 
             if self.transform_dict:
                 for k, v in self.transform_dict.items():
                     seg_copy[segm == int(k)] = v
                     segm = seg_copy
-                    seg_copy_2[segm_2 == int(k)] = v
-                    segm_2 = seg_copy_2
-                    seg_copy_4[segm_4 == int(k)] = v
-                    segm_4 = seg_copy_4
             else:
                 segm = seg_copy - 1 # label from -1 to 149
-                segm_2 = seg_copy_2 - 1
-                segm_4 = seg_copy_4 - 1
+
+            # convert to quadtree
+            seg_copy = segm + 1
+            quadtree = dense2quad(seg_copy)
+
+            segm = quadtree[4]
+            seg_copy = segm.copy().astype(np.int)
+            seg_copy[segm == 0] = -1
+            seg_copy[segm == -1] = 0
+            segm = seg_copy
+
+            segm_2 = quadtree[5]
+            seg_2_copy = segm_2.copy().astype(np.int)
+            seg_2_copy[segm_2 == 0] = -1
+            seg_2_copy[segm_2 == -1] = 0
+            segm_2 = seg_2_copy
+
+            segm_4 = quadtree[6]
+            seg_4_copy = segm_4.copy().astype(np.int)
+            seg_4_copy[segm_4 == 0] = -1
+            seg_4_copy[segm_4 == -1] = 0
+            segm_4 = seg_4_copy
 
             batch_images[i][:, :img.shape[1], :img.shape[2]] = img
             batch_segms[i][:segm.shape[0], :segm.shape[1]] = torch.from_numpy(segm.astype(np.int)).long()
@@ -295,8 +300,6 @@ class TestDataset(torchdata.Dataset):
         self.imgMaxSize = opt.imgMaxSize
         # max down sampling rate of network to avoid rounding during conv or pooling
         self.padding_constant = opt.padding_constant
-        # down sampling rate of segm labe
-        self.segm_downsampling_rate = opt.segm_downsampling_rate
 
         # mean and std
         self.img_transform = transforms.Compose([

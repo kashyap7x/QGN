@@ -4,32 +4,48 @@ from PIL import Image
 import os,sys
 import numpy as np
 
-data_root = '../data/ADEChallengeData2016/annotations/'
-data_type = 'training'
+data_root = '../data/SUNRGBD/label37/'
+data_type = 'train'
 
 data_dir = data_root + data_type + '/'
 list_files = [data_dir + f for f in os.listdir(data_dir) if os.path.isfile(os.path.join(data_dir, f))]
 
+
+# data_root = '../../Cityscapes/gtFine_trainvaltest/gtFine/'
+# data_type = 'val'
+#
+# data_dir = data_root + data_type + '/'
+# list_files = []
+# for city in os.listdir(data_dir):
+# 	data_dir_new = data_dir + city + '/'
+# 	list_files += [data_dir_new + f for f in os.listdir(data_dir_new) if (os.path.isfile(os.path.join(data_dir_new, f)) and f.endswith('labelIds.png'))]
+
+
+def round2nearest_multiple(x, p):
+    return ((x - 1) // p + 1) * p
+
+
 def check_win(win):
 	'''
-		Input:
-			win: window for current node
-		Output:
-			val: value of current window
+	Input:
+		win: window for current node
+	Output:
+		val: value of current window
 	'''
 	if win.min() == win.max():
 		return win.min()
 	else:
 		return float(-1)
 
+
 def node_val(raw_map, given_level, total_levels, key):
 	'''
-		Input:
-			raw_map: original segmentation map
-			level: depth level of segmentation map
-			key: hash-table key (x,y)
-		Output:
-			val: value of current node
+	Input:
+		raw_map: original segmentation map
+		level: depth level of segmentation map
+		key: hash-table key (x,y)
+	Output:
+		val: value of current node
 	'''
 	x = key[0]
 	y = key[1]
@@ -44,24 +60,26 @@ def node_val(raw_map, given_level, total_levels, key):
 	val = check_win(win)
 	return val
 
+
 def cur_key_to_last_key(key):
 	'''
-		Input:
-			key: (x,y) cordinates of current pixel
-		Output:
-			last_key: (x,y) cordinates of super-pixel for current pixel
+	Input:
+		key: (x,y) cordinates of current pixel
+	Output:
+		last_key: (x,y) cordinates of super-pixel for current pixel
 	'''
 	last_key = (int(key[0]/2), int(key[1]/2))
 	return last_key
 
-def node_val_inter(raw_map, given_level, total_levels, key, last_map, kernal_size=3):
+
+def node_val_inter(raw_map, given_level, total_levels, key, last_map):
         '''
-                Input:
-                        raw_map: original segmentation map
-                        level: depth level of segmentation map
-                        key: hash-table key (x,y)
-                Output:
-                        val: value of current node
+        Input:
+                raw_map: original segmentation map
+                level: depth level of segmentation map
+                key: hash-table key (x,y)
+        Output:
+                val: value of current node
         '''
 	last_key = cur_key_to_last_key(key)
 	last_x = last_key[0]
@@ -85,11 +103,11 @@ def node_val_inter(raw_map, given_level, total_levels, key, last_map, kernal_siz
 
 def depth_sub(previous_map, current_map):
 	'''
-		Input:
-			previous_map: seg map of last layer
-			current_map: seg map of current layer
-		Output:
-			current_map: current_map - scaled(previous_map)
+	Input:
+		previous_map: seg map of last layer
+		current_map: seg map of current layer
+	Output:
+		current_map: current_map - scaled(previous_map)
 	'''
 	current_map_x = current_map.shape[0]
 	current_map_y = current_map.shape[1]
@@ -97,10 +115,11 @@ def depth_sub(previous_map, current_map):
 	previous_map = np.array(previous_map)
 	return current_map - previous_map
 
+
 def dense2quad(raw_map, num_levels=6):
 	'''
-		raw_map: input is raw segmentation map
-		out_map: output is quadtree output representation
+	raw_map: input is raw segmentation map
+	out_map: output is quadtree output representation
 	'''
 	size_x = raw_map.shape[0]
 	size_y = raw_map.shape[1]
@@ -109,7 +128,7 @@ def dense2quad(raw_map, num_levels=6):
 	init_res_y = int(size_y/np.power(2,num_levels))
 
 	out_map = {}
-
+test
 	for given_level in range(1,num_levels+1):
 		level_res_x = init_res_x*np.power(2,given_level)
 		level_res_y = init_res_y*np.power(2,given_level)
@@ -121,5 +140,26 @@ def dense2quad(raw_map, num_levels=6):
 		out_map[given_level] = level_map
 	return out_map
 
+
 if __name__ == '__main__':
-	pass
+	num_levels = 6
+	valid_pixels_at_level = np.zeros(num_levels)
+	total_pixels_at_level = np.zeros(num_levels)
+	for i, filename in enumerate(list_files):
+		segm = np.array(Image.open(filename))
+		print(i, segm.shape)
+		segm_rounded_height = round2nearest_multiple(segm.shape[0], np.power(2,num_levels-1))
+		segm_rounded_width = round2nearest_multiple(segm.shape[1], np.power(2,num_levels-1))
+		segm_rounded = np.zeros((segm_rounded_height, segm_rounded_width), dtype='uint8')
+		segm_rounded[:segm.shape[0], :segm.shape[1]] = segm
+		out_map = dense2quad(segm_rounded, num_levels)
+		for given_level in range(1,num_levels+1):
+			this_level_count = np.sum(out_map[given_level]!=-1)
+			this_level_total = (out_map[given_level].shape[0]*out_map[given_level].shape[1])
+			valid_pixels_at_level[given_level-1] += this_level_count
+			total_pixels_at_level[given_level-1] += this_level_total
+
+	ratios = valid_pixels_at_level/total_pixels_at_level
+	print(ratios[0])
+	for i in range(1,num_levels):
+		print(ratios[i]-ratios[i-1])

@@ -9,9 +9,11 @@ class SegmentationModuleBase(nn.Module):
     def __init__(self):
         super(SegmentationModuleBase, self).__init__()
 
-    def pixel_acc(self, pred, label):
+    def pixel_acc(self, pred, label, quad_sup=False):
         _, preds = torch.max(pred, dim=1)
-        valid = (label >= 0).long()
+        if quad_sup:
+            preds -= 1
+        valid = ((label >= 0) and (preds >= 0)).long()
         acc_sum = torch.sum(valid * (preds == label).long())
         pixel_sum = torch.sum(valid)
         acc = acc_sum.float() / (pixel_sum.float() + 1e-10)
@@ -53,7 +55,7 @@ class SegmentationModule(SegmentationModuleBase):
                 loss_deepsup = self.crit(pred_deepsup, labels_orig_scale)
                 loss = loss + loss_deepsup * self.deep_sup_scale
 
-            acc = self.pixel_acc(pred, labels_orig_scale)
+            acc = self.pixel_acc(pred, labels_orig_scale, quad_sup)
             return loss, acc
         else: # inference
             pred = self.decoder(self.encoder(inputs, return_feature_maps=True), segSize=segSize)
