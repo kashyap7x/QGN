@@ -1,6 +1,3 @@
-# QuadNet for Semantic Segmentation
+# Quadtree Generating Networks for Scene Parsing
 
-PyTorch implementation of QuadNet, a hierarchical scene parsing network based on sparse convolutions.
-
-## References
-[Original Codebase](https://github.com/CSAILVision/semantic-segmentation-pytorch)
+PyTorch implementation of Quadtree Generating Networks, a hierarchical scene parsing architecture based on sparse convolutions.
