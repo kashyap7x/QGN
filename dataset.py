@@ -15,16 +15,15 @@ def round2nearest_multiple(x, p):
 
 
 class TrainDataset(torchdata.Dataset):
-    def __init__(self, odgt, opt, max_sample=-1, batch_per_gpu=1):
+    def __init__(self, odgt, opt, max_sample=-1, batch_per_gpu=1, quadtree_levels=6):
         self.root_dataset = opt.root_dataset
         self.imgSize = opt.imgSize
         self.imgMaxSize = opt.imgMaxSize
         self.random_flip = opt.random_flip
         # max down sampling rate of network to avoid rounding during conv or pooling
         self.padding_constant = opt.padding_constant
-        # down sampling rate of segm labe
-        self.segm_downsampling_rate = opt.segm_downsampling_rate
         self.batch_per_gpu = batch_per_gpu
+        self.quadtree_levels = quadtree_levels        
         self.transform_dict = None
         self.crop = None
 
@@ -110,15 +109,11 @@ class TrainDataset(torchdata.Dataset):
         batch_resized_height = int(round2nearest_multiple(batch_resized_height, self.padding_constant))
         batch_resized_width = int(round2nearest_multiple(batch_resized_width, self.padding_constant))
 
-        assert self.padding_constant >= self.segm_downsampling_rate,\
-                'padding constant must be equal or large than segm downsamping rate'
         batch_images = torch.zeros(self.batch_per_gpu, 3, batch_resized_height, batch_resized_width)
-        batch_segms = torch.zeros(self.batch_per_gpu, batch_resized_height // self.segm_downsampling_rate, \
-                                batch_resized_width // self.segm_downsampling_rate).long()
-        batch_segms_2 = torch.zeros(self.batch_per_gpu, batch_resized_height // (self.segm_downsampling_rate*2), \
-                                  batch_resized_width // (self.segm_downsampling_rate*2)).long()
-        batch_segms_4 = torch.zeros(self.batch_per_gpu, batch_resized_height // (self.segm_downsampling_rate*4), \
-                                  batch_resized_width // (self.segm_downsampling_rate*4)).long()
+        batch_segms = []
+        for l in range(self.quadtree_levels):
+            batch_segms.append(torch.zeros(self.batch_per_gpu, batch_resized_height // (2**l), \
+                                batch_resized_width // 2**l).long())
 
         for i in range(self.batch_per_gpu):
             this_record = batch_records[i]
@@ -154,10 +149,13 @@ class TrainDataset(torchdata.Dataset):
             img = img.astype(np.float32)[:, :, ::-1] # RGB to BGR!!!
             img = img.transpose((2, 0, 1))
             img = self.img_transform(torch.from_numpy(img.copy()))
-
+            
+            # add to batch
+            batch_images[i][:, :img.shape[1], :img.shape[2]] = img
+            
             # to avoid seg label misalignment
-            segm_rounded_height = round2nearest_multiple(segm.shape[0], self.segm_downsampling_rate)
-            segm_rounded_width = round2nearest_multiple(segm.shape[1], self.segm_downsampling_rate)
+            segm_rounded_height = round2nearest_multiple(segm.shape[0], self.padding_constant)
+            segm_rounded_width = round2nearest_multiple(segm.shape[1], self.padding_constant)
             segm_rounded = np.zeros((segm_rounded_height, segm_rounded_width), dtype='uint8')
             segm_rounded[:segm.shape[0], :segm.shape[1]] = segm
 
@@ -169,39 +167,24 @@ class TrainDataset(torchdata.Dataset):
                     segm = seg_copy
             else:
                 segm = seg_copy - 1 # label from -1 to 149
-
+            
             # convert to quadtree
             seg_copy = segm + 1
-            quadtree = dense2quad(seg_copy)
-
-            segm = quadtree[4]
-            seg_copy = segm.copy().astype(np.int)
-            seg_copy[segm == 0] = -1
-            seg_copy[segm == -1] = 0
-            segm = seg_copy
-
-            segm_2 = quadtree[5]
-            seg_2_copy = segm_2.copy().astype(np.int)
-            seg_2_copy[segm_2 == 0] = -1
-            seg_2_copy[segm_2 == -1] = 0
-            segm_2 = seg_2_copy
-
-            segm_4 = quadtree[6]
-            seg_4_copy = segm_4.copy().astype(np.int)
-            seg_4_copy[segm_4 == 0] = -1
-            seg_4_copy[segm_4 == -1] = 0
-            segm_4 = seg_4_copy
-
-            batch_images[i][:, :img.shape[1], :img.shape[2]] = img
-            batch_segms[i][:segm.shape[0], :segm.shape[1]] = torch.from_numpy(segm.astype(np.int)).long()
-            batch_segms_2[i][:segm_2.shape[0], :segm_2.shape[1]] = torch.from_numpy(segm_2.astype(np.int)).long()
-            batch_segms_4[i][:segm_4.shape[0], :segm_4.shape[1]] = torch.from_numpy(segm_4.astype(np.int)).long()
+            quadtree = dense2quad(seg_copy, self.quadtree_levels)
+            
+            for l in range(self.quadtree_levels):                        
+                segm = quadtree[self.quadtree_levels-l]
+                seg_copy = segm.copy().astype(np.int)
+                seg_copy[segm == 0] = -1
+                seg_copy[segm == -1] = 0
+                segm = seg_copy
+                batch_segms[l][i][:segm.shape[0], :segm.shape[1]] = torch.from_numpy(segm.astype(np.int)).long()
 
         output = dict()
         output['img_data'] = batch_images
-        output['seg_label'] = batch_segms
-        output['seg_label_2'] = batch_segms_2
-        output['seg_label_4'] = batch_segms_4
+        for l in range(self.quadtree_levels):
+            output['seg_label_'+str(l)] = batch_segms[l]
+
         return output
 
     def __len__(self):

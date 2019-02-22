@@ -34,7 +34,7 @@ def train(segmentation_module, iterator, optimizers, history, epoch, args):
         data_time.update(time.time() - tic)
 
         segmentation_module.zero_grad()
-
+               
         # forward pass
         loss, acc = segmentation_module(batch_data)
         loss = loss.mean()
@@ -158,30 +158,17 @@ def main(args):
         arch=args.arch_encoder,
         fc_dim=args.fc_dim,
         weights=args.weights_encoder)
-    if args.arch_decoder == 'quadnet':
-        net_decoder = builder.build_decoder(
-            arch=args.arch_decoder,
-            fc_dim=args.fc_dim,
-            num_class=args.num_class+1,
-            weights=args.weights_decoder)
-    else:
-        net_decoder = builder.build_decoder(
-            arch=args.arch_decoder,
-            fc_dim=args.fc_dim,
-            num_class=args.num_class,
-            weights=args.weights_decoder)
+    net_decoder = builder.build_decoder(
+        arch=args.arch_decoder,
+        fc_dim=args.fc_dim,
+        num_class=args.num_class,
+        weights=args.weights_decoder)
 
     crit = nn.NLLLoss(ignore_index=-1)
 
-    if args.arch_decoder.endswith('deepsup'):
-        segmentation_module = SegmentationModule(
-            net_encoder, net_decoder, crit, args.deep_sup_scale)
-    elif args.arch_decoder == 'quadnet':
-        segmentation_module = SegmentationModule(
-            net_encoder, net_decoder, crit, args.deep_sup_scale, True)
-    else:
-        segmentation_module = SegmentationModule(
-            net_encoder, net_decoder, crit)
+    segmentation_module = SegmentationModule(
+        net_encoder, net_decoder, crit, 
+        args.deep_sup_scale, args.arch_decoder == 'quadnet')
 
     # Dataset and Loader
     dataset_train = TrainDataset(
@@ -262,7 +249,7 @@ if __name__ == '__main__':
                         default='./data/')
 
     # optimization related arguments
-    parser.add_argument('--num_gpus', default=3, type=int,
+    parser.add_argument('--num_gpus', default=8, type=int,
                         help='number of gpus to use')
     parser.add_argument('--batch_size_per_gpu', default=2, type=int,
                         help='input batch size')
@@ -293,7 +280,7 @@ if __name__ == '__main__':
                         help='number of classes')
     parser.add_argument('--transform_dict', default=None,
                         help='dictionary to map label ids to train ids')
-    parser.add_argument('--workers', default=8, type=int,
+    parser.add_argument('--workers', default=40, type=int,
                         help='number of data loading workers')
     parser.add_argument('--imgSize', default=[300,375,450,525,600], nargs='+', type=int,
                         help='input image size of short edge (int or list)')
@@ -303,8 +290,6 @@ if __name__ == '__main__':
                         help='size of random crop during training (0 for no crop)')
     parser.add_argument('--padding_constant', default=32, type=int,
                         help='maxmimum downsampling rate of the network')
-    parser.add_argument('--segm_downsampling_rate', default=8, type=int,
-                        help='downsampling rate of the segmentation label')
     parser.add_argument('--random_flip', default=True, type=bool,
                         help='if horizontally flip images when training')
 
@@ -337,7 +322,6 @@ if __name__ == '__main__':
     args.id += '-batchSize' + str(args.batch_size)
     args.id += '-imgMaxSize' + str(args.imgMaxSize)
     args.id += '-paddingConst' + str(args.padding_constant)
-    args.id += '-segmDownsampleRate' + str(args.segm_downsampling_rate)
     args.id += '-LR_encoder' + str(args.lr_encoder)
     args.id += '-LR_decoder' + str(args.lr_decoder)
     args.id += '-epoch' + str(args.num_epoch)

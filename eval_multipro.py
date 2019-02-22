@@ -19,7 +19,7 @@ from lib.nn import user_scattered_collate, async_copy_to
 from lib.utils import as_numpy, mark_volatile
 import lib.utils.data as torchdata
 import cv2
-from tqdm import tqdm
+# from tqdm import tqdm
 
 
 def visualize_result(data, preds, args):
@@ -229,7 +229,7 @@ def main(args):
             nr_files = min(nr_files, args.num_val)
     nr_files_per_dev = math.ceil(nr_files / nr_devs)
 
-    pbar = tqdm(total=nr_files)
+    # pbar = tqdm(total=nr_files)
 
     acc_meter = AverageMeter()
     intersection_meter = AverageMeter()
@@ -255,7 +255,7 @@ def main(args):
         intersection_meter.update(intersection)
         union_meter.update(union)
         processed_counter += 1
-        pbar.update(1)
+        # pbar.update(1)
 
     for p in procs:
         p.join()
@@ -330,7 +330,7 @@ if __name__ == '__main__':
 
     print(args.weights_encoder, args.weights_decoder)
     assert os.path.exists(args.weights_encoder) and \
-        os.path.exists(args.weights_encoder), 'checkpoint does not exitst!'
+        os.path.exists(args.weights_encoder), 'checkpoint does not exist!'
 
     args.result = os.path.join(args.result, args.id)
     if not os.path.isdir(args.result):
