@@ -5,6 +5,7 @@ from . import resnet, resnext
 from lib.nn import SynchronizedBatchNorm2d
 from utils import gather
 
+
 class SegmentationModuleBase(nn.Module):
     def __init__(self):
         super(SegmentationModuleBase, self).__init__()
@@ -36,12 +37,12 @@ class SegmentationModule(SegmentationModuleBase):
     def forward(self, feed_dict, *, segSize=None):
         inputs = feed_dict['img_data'].cuda()
         if segSize is None: # training
-            labels_orig_scale = feed_dict['seg_label_2'].cuda()             
+            labels_orig_scale = feed_dict['seg_label_0'].cuda()             
             labels_scaled = []
             if self.quad_sup:
                 (pred, pred_quad) = self.decoder(self.encoder(inputs, return_feature_maps=True))
-                # labels_scaled.append(feed_dict['seg_label_1'].cuda())
-                # labels_scaled.append(feed_dict['seg_label_2'].cuda())
+                labels_scaled.append(feed_dict['seg_label_1'].cuda())
+                labels_scaled.append(feed_dict['seg_label_2'].cuda())
                 labels_scaled.append(feed_dict['seg_label_3'].cuda())
                 labels_scaled.append(feed_dict['seg_label_4'].cuda())
                 labels_scaled.append(feed_dict['seg_label_5'].cuda())
@@ -432,18 +433,19 @@ class QGN(nn.Module):
         self.use_softmax = use_softmax
 
     def forward(self, conv_out, segSize=None):
-        out = self.orig_resnet(conv_out)
+        
+        quad_preds = self.orig_resnet(conv_out)
+        x = quad_preds[-1]
 
         if self.use_softmax:  # is True during inference
-            x = out[0]
             x = nn.functional.upsample(x, size=segSize, mode='bilinear')
             x = nn.functional.softmax(x[:,1:,:,:], dim=1)
             return x
-        
-        for item in out:
-            print(item.shape)
-            item = nn.functional.log_softmax(item, dim=1)
+
+        x = nn.functional.log_softmax(x, dim=1)
+
+        y = []
+        for i in reversed(range(len(quad_preds)-1)):
+            y.append(nn.functional.log_softmax(quad_preds[i], dim=1))
             
-        x = out[0]
-        y = out[1:]            
         return x, y

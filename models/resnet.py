@@ -302,7 +302,7 @@ class ResNetTranspose(nn.Module):
         x = self.final_conv(x)
         out1 = self.final_deconv(x)
 
-        return [out1, out2, out3, out4, out5, out6]
+        return [out6, out5, out4, out3, out2, out1]
         
 
 '''

@@ -231,7 +231,7 @@ if __name__ == '__main__':
                         help="a name for identifying the experiment")
     parser.add_argument('--arch_encoder', default='resnet50',
                         help="architecture of net_encoder")
-    parser.add_argument('--arch_decoder', default='quadnet',
+    parser.add_argument('--arch_decoder', default='QGN',
                         help="architecture of net_decoder")
     parser.add_argument('--weights_encoder', default='',
                         help="weights to finetune net_encoder")
