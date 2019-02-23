@@ -168,7 +168,7 @@ def main(args):
 
     segmentation_module = SegmentationModule(
         net_encoder, net_decoder, crit, 
-        args.deep_sup_scale, args.arch_decoder == 'quadnet')
+        args.deep_sup_scale, not(args.arch_decoder.endswith('bilinear')))
 
     # Dataset and Loader
     dataset_train = TrainDataset(

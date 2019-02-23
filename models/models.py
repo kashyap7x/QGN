@@ -40,13 +40,14 @@ class SegmentationModule(SegmentationModuleBase):
             labels_scaled = []
             if self.quad_sup:
                 (pred, pred_quad) = self.decoder(self.encoder(inputs, return_feature_maps=True))
+                # labels_scaled.append(feed_dict['seg_label_1'].cuda())
+                # labels_scaled.append(feed_dict['seg_label_2'].cuda())
                 labels_scaled.append(feed_dict['seg_label_3'].cuda())
                 labels_scaled.append(feed_dict['seg_label_4'].cuda())
                 labels_scaled.append(feed_dict['seg_label_5'].cuda())
             else:
                 pred = self.decoder(self.encoder(inputs, return_feature_maps=True))
             loss = self.crit(pred, labels_orig_scale)
-
             if self.quad_sup:
                 for i in range(len(pred_quad)):
                     loss_quad = self.crit(pred_quad[i], labels_scaled[i])
@@ -141,6 +142,10 @@ class ModelBuilder():
                 fc_dim=fc_dim,
                 use_softmax=use_softmax,
                 quad_dim=256)
+        elif arch == 'QGN':
+            net_decoder = QGN(
+                num_class=num_class,
+                use_softmax=use_softmax)
         else:
             raise Exception('Architecture undefined!')
 
@@ -416,4 +421,29 @@ class QuadNet(nn.Module):
         for i in reversed(range(len(quad_preds)-1)):
             y.append(nn.functional.log_softmax(quad_preds[i], dim=1))
 
+        return x, y
+
+
+# QGN based on sparse transposed ResNet
+class QGN(nn.Module):
+    def __init__(self, num_class=150, use_softmax=False):
+        super(QGN, self).__init__()
+        self.orig_resnet = resnet.resnet50_transpose(num_classes=num_class+1)
+        self.use_softmax = use_softmax
+
+    def forward(self, conv_out, segSize=None):
+        out = self.orig_resnet(conv_out)
+
+        if self.use_softmax:  # is True during inference
+            x = out[0]
+            x = nn.functional.upsample(x, size=segSize, mode='bilinear')
+            x = nn.functional.softmax(x[:,1:,:,:], dim=1)
+            return x
+        
+        for item in out:
+            print(item.shape)
+            item = nn.functional.log_softmax(item, dim=1)
+            
+        x = out[0]
+        y = out[1:]            
         return x, y

@@ -95,6 +95,43 @@ class Bottleneck(nn.Module):
         out = self.relu(out)
 
         return out
+        
+        
+class TransBasicBlock(nn.Module):
+    expansion = 1
+
+    def __init__(self, inplanes, planes, stride=1, upsample=None, **kwargs):
+        super(TransBasicBlock, self).__init__()
+        self.conv1 = conv3x3(inplanes, inplanes)
+        self.bn1 = SynchronizedBatchNorm2d(inplanes)
+        self.relu = nn.ReLU(inplace=True)
+        if upsample is not None and stride != 1:
+            self.conv2 = nn.ConvTranspose2d(inplanes, planes,
+                                            kernel_size=3, stride=stride, padding=1,
+                                            output_padding=1, bias=False)
+        else:
+            self.conv2 = conv3x3(inplanes, planes, stride)
+        self.bn2 = SynchronizedBatchNorm2d(planes)
+        self.upsample = upsample
+        self.stride = stride
+
+    def forward(self, x):
+        residual = x
+
+        out = self.conv1(x)
+        out = self.bn1(out)
+        out = self.relu(out)
+
+        out = self.conv2(out)
+        out = self.bn2(out)
+
+        if self.upsample is not None:
+            residual = self.upsample(x)
+
+        out += residual
+        out = self.relu(out)
+
+        return out
 
 
 class ResNet(nn.Module):
@@ -161,6 +198,112 @@ class ResNet(nn.Module):
         x = self.fc(x)
 
         return x
+        
+        
+class ResNetTranspose(nn.Module):
+
+    def __init__(self, transblock, num_classes=150, layers = [6,4,3,3]):
+        self.inplanes = 512
+        super(ResNetTranspose, self).__init__()
+        
+        self.deconv1 = self._make_transpose(transblock, 256, layers[0], stride=2)
+        self.deconv2 = self._make_transpose(transblock, 128, layers[1], stride=2)
+        self.deconv3 = self._make_transpose(transblock, 64, layers[2], stride=2)
+        self.deconv4 = self._make_transpose(transblock, 64, layers[3], stride=2)
+        
+        self.skip0 = self._make_skip_layer(128, 64)
+        self.skip1 = self._make_skip_layer(256, 64)
+        self.skip2 = self._make_skip_layer(512, 128)
+        self.skip3 = self._make_skip_layer(1024, 256)
+        self.skip4 = self._make_skip_layer(2048, 512)
+        
+        self.inplanes = 64
+        self.final_conv = self._make_transpose(transblock, 64, 3)
+        
+        self.final_deconv = nn.ConvTranspose2d(self.inplanes, num_classes, kernel_size=2,
+                                               stride=2, padding=0, bias=True)
+        
+        self.out6_conv = nn.Conv2d(2048, num_classes, kernel_size=1, stride=1, bias=True)
+        self.out5_conv = nn.Conv2d(256, num_classes, kernel_size=1, stride=1, bias=True)
+        self.out4_conv = nn.Conv2d(128, num_classes, kernel_size=1, stride=1, bias=True)
+        self.out3_conv = nn.Conv2d(64, num_classes, kernel_size=1, stride=1, bias=True)
+        self.out2_conv = nn.Conv2d(64, num_classes, kernel_size=1, stride=1, bias=True)
+        
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
+                m.weight.data.normal_(0, math.sqrt(2. / n))
+            elif isinstance(m, nn.ConvTranspose2d):
+                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
+                m.weight.data.normal_(0, math.sqrt(2. / n))
+            elif isinstance(m, SynchronizedBatchNorm2d):
+                m.weight.data.fill_(1)
+                m.bias.data.zero_()
+
+    def _make_transpose(self, block, planes, blocks, stride=1):
+
+        upsample = None
+        if stride != 1:
+            upsample = nn.Sequential(
+                nn.ConvTranspose2d(self.inplanes, planes,
+                                   kernel_size=2, stride=stride,
+                                   padding=0, bias=False),
+                SynchronizedBatchNorm2d(planes),
+            )
+        elif self.inplanes != planes:
+            upsample = nn.Sequential(
+                nn.Conv2d(self.inplanes, planes,
+                          kernel_size=1, stride=stride, bias=False),
+                SynchronizedBatchNorm2d(planes),
+            )
+
+        layers = []
+
+        for i in range(1, blocks):
+            layers.append(block(self.inplanes, self.inplanes))
+
+        layers.append(block(self.inplanes, planes, stride, upsample))
+        self.inplanes = planes
+
+        return nn.Sequential(*layers)
+        
+    def _make_skip_layer(self, inplanes, planes):
+
+        layers = nn.Sequential(
+            nn.Conv2d(inplanes, planes, kernel_size=1,
+                      stride=1, padding=0, bias=False),
+            SynchronizedBatchNorm2d(planes),
+            nn.ReLU(inplace=True)
+        )
+        return layers
+
+    def forward(self, x):
+        [in0, in1, in2, in3, in4] = x
+        
+        out6 = self.out6_conv(in4)
+        skip4 = self.skip4(in4)
+        # upsample 1
+        x = self.deconv1(skip4)
+        out5 = self.out5_conv(x)
+        x = x + self.skip3(in3)
+        # upsample 2
+        x = self.deconv2(x)
+        out4 = self.out4_conv(x)
+        x = x + self.skip2(in2)
+        # upsample 3
+        x = self.deconv3(x)
+        out3 = self.out3_conv(x)
+        x = x + self.skip1(in1)
+        # upsample 4
+        x = self.deconv4(x)
+        out2 = self.out2_conv(x)
+        x = x + self.skip0(in0)
+        # final
+        x = self.final_conv(x)
+        out1 = self.final_deconv(x)
+
+        return [out1, out2, out3, out4, out5, out6]
+        
 
 '''
 def resnet18(pretrained=False, **kwargs):
@@ -210,6 +353,16 @@ def resnet101(pretrained=False, **kwargs):
         model.load_state_dict(load_url(model_urls['resnet101']), strict=False)
     return model
 
+
+def resnet50_transpose(**kwargs):
+    """Constructs a ResNet-50 transpose model.
+
+    Args:
+        pretrained (bool): If True, returns a model pre-trained on Places
+    """
+    model = ResNetTranspose(TransBasicBlock, **kwargs)
+    return model
+    
 # def resnet152(pretrained=False, **kwargs):
 #     """Constructs a ResNet-152 model.
 #
