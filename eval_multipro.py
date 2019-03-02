@@ -279,11 +279,11 @@ if __name__ == '__main__':
     # Model related arguments
     parser.add_argument('--id', required=True,
                         help="a name for identifying the model to load")
-    parser.add_argument('--suffix', default='_epoch_10.pth',
+    parser.add_argument('--suffix', default='_epoch_20.pth',
                         help="which snapshot to load")
     parser.add_argument('--arch_encoder', default='resnet50',
                         help="architecture of net_encoder")
-    parser.add_argument('--arch_decoder', default='quadnet',
+    parser.add_argument('--arch_decoder', default='QGN',
                         help="architecture of net_decoder")
     parser.add_argument('--fc_dim', default=2048, type=int,
                         help='number of features between encoder and decoder')

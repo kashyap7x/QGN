@@ -286,11 +286,13 @@ class C1Bilinear(nn.Module):
 
 # pyramid pooling, bilinear upsample
 class PPMBilinear(nn.Module):
-    def __init__(self, num_class=150, fc_dim=4096,
-                 use_softmax=False, pool_scales=(1, 2, 3, 6)):
+    def __init__(self, num_class=150, fc_dim=2048,
+                 use_softmax=False, context_mode=False,
+                 pool_scales=(1, 2, 3, 6)):
         super(PPMBilinear, self).__init__()
         self.use_softmax = use_softmax
-
+        self.context_mode = context_mode
+        
         self.ppm = []
         for scale in pool_scales:
             self.ppm.append(nn.Sequential(
@@ -301,14 +303,8 @@ class PPMBilinear(nn.Module):
             ))
         self.ppm = nn.ModuleList(self.ppm)
 
-        self.conv_last = nn.Sequential(
-            nn.Conv2d(fc_dim+len(pool_scales)*512, 512,
-                      kernel_size=3, padding=1, bias=False),
-            SynchronizedBatchNorm2d(512),
-            nn.ReLU(inplace=True),
-            nn.Dropout2d(0.1),
-            nn.Conv2d(512, num_class, kernel_size=1)
-        )
+        self.conv_last = nn.Conv2d(fc_dim+len(pool_scales)*512,
+                                    num_class, kernel_size=1)
 
     def forward(self, conv_out, segSize=None):
         conv5 = conv_out[-1]
@@ -328,7 +324,8 @@ class PPMBilinear(nn.Module):
             x = nn.functional.upsample(x, size=segSize, mode='bilinear')
             x = nn.functional.softmax(x, dim=1)
         else:
-            x = nn.functional.log_softmax(x, dim=1)
+            if not self.context_mode:
+                x = nn.functional.log_softmax(x, dim=1)
         return x
 
 
@@ -427,12 +424,18 @@ class QuadNet(nn.Module):
 
 # QGN based on sparse transposed ResNet
 class QGN(nn.Module):
-    def __init__(self, num_class=150, use_softmax=False):
+    def __init__(self, num_class=150, use_softmax=False, use_ppm=False):
         super(QGN, self).__init__()
+        self.use_ppm = use_ppm
+        if use_ppm:
+            self.ppm_context = PPMBilinear(num_class=2048, context_mode=True)
         self.orig_resnet = resnet.resnet50_transpose(num_classes=num_class+1)
         self.use_softmax = use_softmax
 
     def forward(self, conv_out, segSize=None):
+        if self.use_ppm:
+            x = self.ppm_context(conv_out)
+            conv_out[-1] = x
         
         quad_preds = self.orig_resnet(conv_out)
         x = quad_preds[-1]
