@@ -39,15 +39,18 @@ class SegmentationModule(SegmentationModuleBase):
         if segSize is None: # training
             labels_orig_scale = feed_dict['seg_label_0'].cuda()             
             labels_scaled = []
+            fmap = self.encoder(inputs, return_feature_maps=True)
+            
             if self.quad_sup:
-                (pred, pred_quad) = self.decoder(self.encoder(inputs, return_feature_maps=True))
                 labels_scaled.append(feed_dict['seg_label_1'].cuda())
                 labels_scaled.append(feed_dict['seg_label_2'].cuda())
                 labels_scaled.append(feed_dict['seg_label_3'].cuda())
                 labels_scaled.append(feed_dict['seg_label_4'].cuda())
                 labels_scaled.append(feed_dict['seg_label_5'].cuda())
+                (pred, pred_quad) = self.decoder(fmap, labels_scaled)
             else:
-                pred = self.decoder(self.encoder(inputs, return_feature_maps=True))
+                pred = self.decoder(fmap)
+
             loss = self.crit(pred, labels_orig_scale)
             if self.quad_sup:
                 for i in range(len(pred_quad)):
@@ -143,8 +146,9 @@ class ModelBuilder():
                 fc_dim=fc_dim,
                 use_softmax=use_softmax,
                 quad_dim=256)
-        elif arch == 'QGN':
+        elif arch.startswith('QGN_'):
             net_decoder = QGN(
+                arch=arch,
                 num_class=num_class,
                 use_softmax=use_softmax)
         else:
@@ -424,24 +428,40 @@ class QuadNet(nn.Module):
 
 # QGN based on sparse transposed ResNet
 class QGN(nn.Module):
-    def __init__(self, num_class=150, use_softmax=False, use_ppm=False):
+    def __init__(self, arch, num_class=150, use_softmax=False, use_ppm=False):
         super(QGN, self).__init__()
         self.use_ppm = use_ppm
         if use_ppm:
             self.ppm_context = PPMBilinear(num_class=2048, context_mode=True)
-        self.orig_resnet = resnet.resnet50_transpose(num_classes=num_class+1)
+        if arch=='QGN_resnet34':
+            self.orig_resnet = resnet.resnet34_transpose_sparse(num_classes=num_class+1)
+        elif arch=='QGN_dense_resnet34':
+            self.orig_resnet = resnet.resnet34_transpose(num_classes=num_class+1)
+        elif arch=='QGN_resnet50':
+            self.orig_resnet = resnet.resnet34_transpose_sparse(num_classes=num_class+1)
+        elif arch=='QGN_dense_resnet50':
+            self.orig_resnet = resnet.resnet34_transpose(num_classes=num_class+1)
+        else:
+            raise Exception('Architecture undefined!')
         self.use_softmax = use_softmax
 
-    def forward(self, conv_out, segSize=None):
+    def forward(self, conv_out, labels_scaled=None, segSize=None):
         if self.use_ppm:
             x = self.ppm_context(conv_out)
             conv_out[-1] = x
-        
-        quad_preds = self.orig_resnet(conv_out)
+
+        quad_preds = self.orig_resnet(conv_out, labels_scaled)
         x = quad_preds[-1]
 
         if self.use_softmax:  # is True during inference
-            x = nn.functional.upsample(x, size=segSize, mode='bilinear')
+            masks = [(torch.argmax(out, dim=1)==0).unsqueeze(1).repeat(1,out.shape[1],1,1).type(out.dtype) for out in quad_preds]
+            for (i, mask) in enumerate(masks):
+                quad_preds[i] = (1 - mask) * quad_preds[i]
+                quad_preds[i] = nn.functional.upsample(quad_preds[i], size=segSize, mode='bilinear')
+                for j in range(i+1,len(masks)):
+                    mask = nn.functional.upsample(mask, scale_factor=2)
+                    quad_preds[j] = mask * quad_preds[j]
+            x = sum(quad_preds)
             x = nn.functional.softmax(x[:,1:,:,:], dim=1)
             return x
 

@@ -122,11 +122,18 @@ def create_optimizers(nets, args):
         lr=args.lr_encoder,
         momentum=args.beta1,
         weight_decay=args.weight_decay)
-    optimizer_decoder = torch.optim.SGD(
-        group_weight(net_decoder),
-        lr=args.lr_decoder,
-        momentum=args.beta1,
-        weight_decay=args.weight_decay)
+    if args.arch_decoder.startswith('QGN_resnet'):
+        optimizer_decoder = torch.optim.SGD(
+            net_decoder.parameters(),
+            lr=args.lr_decoder,
+            momentum=args.beta1,
+            weight_decay=args.weight_decay)
+    else:
+        optimizer_decoder = torch.optim.SGD(
+            group_weight(net_decoder),
+            lr=args.lr_decoder,
+            momentum=args.beta1,
+            weight_decay=args.weight_decay)
     return (optimizer_encoder, optimizer_decoder)
 
 
@@ -203,7 +210,9 @@ def main(args):
 
     # Main loop
     history = {'train': {'epoch': [], 'loss': [], 'acc': []}}
-
+    
+    print('Starting Training!')
+    
     for epoch in range(args.start_epoch, args.num_epoch + 1):
         train(segmentation_module, iterator_train, optimizers, history, epoch, args)
 
@@ -231,7 +240,7 @@ if __name__ == '__main__':
                         help="a name for identifying the experiment")
     parser.add_argument('--arch_encoder', default='resnet50',
                         help="architecture of net_encoder")
-    parser.add_argument('--arch_decoder', default='QGN',
+    parser.add_argument('--arch_decoder', default='QGN_resnet50',
                         help="architecture of net_decoder")
     parser.add_argument('--weights_encoder', default='',
                         help="weights to finetune net_encoder")
@@ -249,9 +258,9 @@ if __name__ == '__main__':
                         default='./data/')
 
     # optimization related arguments
-    parser.add_argument('--num_gpus', default=8, type=int,
+    parser.add_argument('--num_gpus', default=2, type=int,
                         help='number of gpus to use')
-    parser.add_argument('--batch_size_per_gpu', default=1, type=int,
+    parser.add_argument('--batch_size_per_gpu', default=2, type=int,
                         help='input batch size')
     parser.add_argument('--num_epoch', default=20, type=int,
                         help='epochs to train for')
@@ -268,13 +277,13 @@ if __name__ == '__main__':
                         help='momentum for sgd, beta1 for adam')
     parser.add_argument('--weight_decay', default=1e-4, type=float,
                         help='weights regularizer')
-    parser.add_argument('--deep_sup_scale', default=0.5, type=float,
+    parser.add_argument('--deep_sup_scale', default=1, type=float,
                         help='the weight for scaling lower resoultion losses')
     parser.add_argument('--fix_bn', default=0, type=int,
                         help='fix bn params')
 
     # Data related arguments
-    parser.add_argument('--num_val', default=200, type=int,
+    parser.add_argument('--num_val', default=500, type=int,
                         help='number of images to evalutate')
     parser.add_argument('--num_class', default=150, type=int,
                         help='number of classes')
