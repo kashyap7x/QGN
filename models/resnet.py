@@ -20,6 +20,27 @@ model_urls = {
     'resnet101': 'http://sceneparsing.csail.mit.edu/model/pretrained_resnet/resnet101-imagenet.pth'
 }
 
+class AddSparseDense(nn.Sequential):
+    def __init__(self, *args):
+        nn.Sequential.__init__(self, *args)
+        
+    def forward(self, input):
+        a = input[0]
+        b = input[1]
+        output = scn.SparseConvNetTensor()
+        output.metadata = a.metadata
+        output.spatial_size = a.spatial_size
+        axyz = a.get_spatial_locations()
+        y = axyz[:,0]
+        x = axyz[:,1]
+        z = axyz[:,2]
+
+        output.features = a.features + b[z,:,y,x]
+        return output
+           
+    def input_spatial_size(self,out_size):
+        return out_size
+        
 
 def conv3x3(in_planes, out_planes, stride=1):
     "3x3 convolution with padding"
@@ -110,13 +131,19 @@ class TransBasicBlockSparse(nn.Module):
     def __init__(self, inplanes, planes, stride=1, upsample=None, **kwargs):
         super(TransBasicBlockSparse, self).__init__()
         self.conv1 = conv3x3_sparse(inplanes, inplanes)
-        # self.bn1 = scn.BatchNormalization(inplanes)
+        self.bn1 = scn.BatchNormReLU(inplanes)
         self.relu = scn.ReLU()
         if upsample is not None and stride != 1:
-            self.conv2 = scn.Deconvolution(2, inplanes, planes, 3, stride, False)
+            self.conv2 = scn.Sequential(
+                scn.SparseToDense(2,inplanes),
+                nn.ConvTranspose2d(inplanes, planes,
+                                  kernel_size=2, stride=stride, padding=0,
+                                  output_padding=0, bias=False),
+                scn.DenseToSparse(2)
+            )
         else:
             self.conv2 = conv3x3_sparse(inplanes, planes, stride)
-        # self.bn2 = scn.BatchNormalization(planes)
+        self.bn2 = scn.BatchNormalization(planes)
         self.add = scn.AddTable()
         self.upsample = upsample
         self.stride = stride
@@ -125,11 +152,10 @@ class TransBasicBlockSparse(nn.Module):
         residual = x
 
         out = self.conv1(x)
-        # out = self.bn1(out)
-        out = self.relu(out)
-        
+        out = self.bn1(out)
+
         out = self.conv2(out)
-        # out = self.bn2(out)
+        out = self.bn2(out)
 
         if self.upsample is not None:
             residual = self.upsample(x)
@@ -227,15 +253,21 @@ class TransBottleneckSparse(nn.Module):
 
     def __init__(self, inplanes, planes, stride=1, upsample=None, **kwargs):
         super(TransBottleneckSparse, self).__init__()
-        self.conv1 = scn.SubmanifoldConvolution(2, inplanes * 4, inplanes, 1, False)
-        # self.bn1 = scn.BatchNormalization(inplanes)
+        self.conv1 = scn.NetworkInNetwork(inplanes * 4, inplanes, False)
+        self.bn1 = scn.BatchNormReLU(inplanes)
         if upsample is not None and stride != 1:
-            self.conv2 = scn.Deconvolution(2, inplanes, planes, 3, stride, False)
+            self.conv2 = scn.Sequential(
+                scn.SparseToDense(2,inplanes),
+                nn.ConvTranspose2d(inplanes, inplanes,
+                                  kernel_size=2, stride=stride, padding=0,
+                                  output_padding=0, bias=False),
+                scn.DenseToSparse(2)
+            )
         else:
             self.conv2 = conv3x3_sparse(inplanes, inplanes, stride)
-        # self.bn2 = scn.BatchNormalization(inplanes)
-        self.conv3 = scn.SubmanifoldConvolution(2, inplanes, planes, 1, False)
-        # self.bn3 = scn.BatchNormalization(planes)
+        self.bn2 = scn.BatchNormReLU(inplanes)
+        self.conv3 = scn.NetworkInNetwork(inplanes, planes, False)
+        self.bn3 = scn.BatchNormalization(planes)
         self.relu = scn.ReLU()
         self.add = scn.AddTable()
         self.upsample = upsample
@@ -245,15 +277,13 @@ class TransBottleneckSparse(nn.Module):
         residual = x
 
         out = self.conv1(x)
-        # out = self.bn1(out)
-        out = self.relu(out)
+        out = self.bn1(out)
 
         out = self.conv2(out)
-        # out = self.bn2(out)
-        out = self.relu(out)
+        out = self.bn2(out)
 
         out = self.conv3(out)
-        # out = self.bn3(out)
+        out = self.bn3(out)
 
         if self.upsample is not None:
             residual = self.upsample(x)
@@ -479,7 +509,7 @@ class ResNetTransposeSparse(nn.Module):
         super(ResNetTransposeSparse, self).__init__()
         
         self.dense_to_sparse = scn.DenseToSparse(2)
-        self.add = scn.AddTable()
+        self.add = AddSparseDense()
         
         self.deconv1 = self._make_transpose(transblock, 256 * transblock.expansion, layers[0], stride=2)
         self.deconv2 = self._make_transpose(transblock, 128 * transblock.expansion, layers[1], stride=2)
@@ -492,16 +522,25 @@ class ResNetTransposeSparse(nn.Module):
         self.skip3 = self._make_skip_layer(1024, 256 * transblock.expansion)
         self.skip4 = self._make_skip_layer(2048, 512 * transblock.expansion)
         
+        self.densify0 = scn.SparseToDense(2, 64 * transblock.expansion)
+        self.densify1 = scn.SparseToDense(2, 64 * transblock.expansion)
+        self.densify2 = scn.SparseToDense(2, 128 * transblock.expansion)
+        self.densify3 = scn.SparseToDense(2, 256 * transblock.expansion)
+        
         self.inplanes = 64
         self.final_conv = self._make_transpose(transblock, 64 * transblock.expansion, 3)
         
-        self.final_deconv = scn.Deconvolution(2, self.inplanes * transblock.expansion, num_classes, 2, 2, True)
+        self.final_deconv = scn.Sequential(
+                scn.SparseToDense(2, self.inplanes * transblock.expansion),
+                nn.ConvTranspose2d(self.inplanes * transblock.expansion, num_classes, kernel_size=2,
+                                               stride=2, padding=0, bias=True)
+            )            
         
         self.out6_conv = nn.Conv2d(2048, num_classes, kernel_size=1, stride=1, bias=True)
-        self.out5_conv = scn.SubmanifoldConvolution(2, 256 * transblock.expansion, num_classes, 1, True)
-        self.out4_conv = scn.SubmanifoldConvolution(2, 128 * transblock.expansion, num_classes, 1, True)
-        self.out3_conv = scn.SubmanifoldConvolution(2, 64 * transblock.expansion, num_classes, 1, True)
-        self.out2_conv = scn.SubmanifoldConvolution(2, 64 * transblock.expansion, num_classes, 1, True)
+        self.out5_conv = scn.NetworkInNetwork(256 * transblock.expansion, num_classes, True)
+        self.out4_conv = scn.NetworkInNetwork(128 * transblock.expansion, num_classes, True)
+        self.out3_conv = scn.NetworkInNetwork(64 * transblock.expansion, num_classes, True)
+        self.out2_conv = scn.NetworkInNetwork(64 * transblock.expansion, num_classes, True)
         
         self.sparse_to_dense = scn.SparseToDense(2, num_classes)
         
@@ -510,13 +549,16 @@ class ResNetTransposeSparse(nn.Module):
         upsample = None
         if stride != 1:
             upsample = scn.Sequential(
-                scn.Deconvolution(2, self.inplanes * transblock.expansion, planes, 2, stride, False),
-                # scn.BatchNormalization(planes),
-            )
+                scn.SparseToDense(2,self.inplanes * transblock.expansion),
+                nn.ConvTranspose2d(self.inplanes * transblock.expansion, planes,
+                                  kernel_size=2, stride=stride, padding=0, bias=False),
+                scn.DenseToSparse(2),
+                scn.BatchNormalization(planes)                
+            )            
         elif self.inplanes * transblock.expansion != planes:
             upsample = scn.Sequential(
-                scn.Convolution(2, self.inplanes * transblock.expansion, planes, 1, stride, False),
-                # scn.BatchNormalization(planes),
+                scn.NetworkInNetwork(self.inplanes * transblock.expansion, planes, False),
+                scn.BatchNormalization(planes)
             )
 
         layers = []
@@ -532,9 +574,8 @@ class ResNetTransposeSparse(nn.Module):
     def _make_skip_layer(self, inplanes, planes):
 
         layers = scn.Sequential(
-            scn.Convolution(2, inplanes, planes, 1, 1, False),
-            # scn.BatchNormReLU(planes),
-            scn.ReLU()
+            scn.NetworkInNetwork(inplanes, planes, False),
+            scn.BatchNormReLU(planes)
         )
         return layers
 
@@ -550,6 +591,7 @@ class ResNetTransposeSparse(nn.Module):
         else:
             mask4 = (torch.argmax(out6, dim=1)==0).unsqueeze(1).repeat(1,in4.shape[1],1,1).type(in4.dtype)
         in4 = in4 * mask4
+
         in4 = self.dense_to_sparse(in4)
         skip4 = self.skip4(in4)
         # upsample 1
@@ -563,7 +605,7 @@ class ResNetTransposeSparse(nn.Module):
             mask3 = (torch.argmax(out5, dim=1)==0).unsqueeze(1).repeat(1,in3.shape[1],1,1).type(in3.dtype)
         in3 = in3 * mask3
         in3 = self.dense_to_sparse(in3)
-        x = self.add([x,self.skip3(in3)])
+        x = self.add([self.skip3(in3),self.densify3(x)])
         # upsample 2
         x = self.deconv2(x)
         out4 = self.sparse_to_dense(self.out4_conv(x))
@@ -574,7 +616,7 @@ class ResNetTransposeSparse(nn.Module):
             mask2 = (torch.argmax(out4, dim=1)==0).unsqueeze(1).repeat(1,in2.shape[1],1,1).type(in2.dtype)
         in2 = in2 * mask2
         in2 = self.dense_to_sparse(in2)
-        x = self.add([x,self.skip2(in2)])
+        x = self.add([self.skip2(in2),self.densify2(x)])
         # upsample 3
         x = self.deconv3(x)
         out3 = self.sparse_to_dense(self.out3_conv(x))
@@ -585,7 +627,7 @@ class ResNetTransposeSparse(nn.Module):
             mask1 = (torch.argmax(out3, dim=1)==0).unsqueeze(1).repeat(1,in1.shape[1],1,1).type(in1.dtype)
         in1 = in1 * mask1
         in1 = self.dense_to_sparse(in1)
-        x = self.add([x,self.skip1(in1)])
+        x = self.add([self.skip1(in1),self.densify1(x)])
         # upsample 4
         x = self.deconv4(x)
         out2 = self.sparse_to_dense(self.out2_conv(x))
@@ -596,10 +638,10 @@ class ResNetTransposeSparse(nn.Module):
             mask0 = (torch.argmax(out2, dim=1)==0).unsqueeze(1).repeat(1,in0.shape[1],1,1).type(in0.dtype)
         in0 = in0 * mask0
         in0 = self.dense_to_sparse(in0)
-        x = self.add([x,self.skip0(in0)])
+        x = self.add([self.skip0(in0),self.densify0(x)])
         # final
         x = self.final_conv(x)
-        out1 = self.sparse_to_dense(self.final_deconv(x))
+        out1 = self.final_deconv(x)
 
         return [out6, out5, out4, out3, out2, out1]
 

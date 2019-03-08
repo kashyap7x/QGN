@@ -438,9 +438,9 @@ class QGN(nn.Module):
         elif arch=='QGN_dense_resnet34':
             self.orig_resnet = resnet.resnet34_transpose(num_classes=num_class+1)
         elif arch=='QGN_resnet50':
-            self.orig_resnet = resnet.resnet34_transpose_sparse(num_classes=num_class+1)
+            self.orig_resnet = resnet.resnet50_transpose_sparse(num_classes=num_class+1)
         elif arch=='QGN_dense_resnet50':
-            self.orig_resnet = resnet.resnet34_transpose(num_classes=num_class+1)
+            self.orig_resnet = resnet.resnet50_transpose(num_classes=num_class+1)
         else:
             raise Exception('Architecture undefined!')
         self.use_softmax = use_softmax
