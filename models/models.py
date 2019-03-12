@@ -26,14 +26,21 @@ class SegmentationModuleBase(nn.Module):
 
 
 class SegmentationModule(SegmentationModuleBase):
-    def __init__(self, net_enc, net_dec, crit, deep_sup_scale=None, quad_sup=False):
+    def __init__(self, net_enc, net_dec, crit, deep_sup_scale=None, quad_sup=False, running_avg_param=0.99):
         super(SegmentationModule, self).__init__()
         self.encoder = net_enc
         self.decoder = net_dec
         self.crit = crit
-        self.deep_sup_scale = deep_sup_scale
+        if deep_sup_scale:
+          if deep_sup_scale < 0:
+              self.adapt_weights = True
+              self.running_avg_param = running_avg_param
+              deep_sup_scale = 1
+          else:
+              self.adapt_weights = False
+          self.loss_weights = [(deep_sup_scale**(i+1)) for i in range(5)]
         self.quad_sup = quad_sup
-
+            
     def forward(self, feed_dict, *, segSize=None):
         inputs = feed_dict['img_data'].cuda()
         if segSize is None: # training
@@ -53,9 +60,13 @@ class SegmentationModule(SegmentationModuleBase):
             
             loss = self.crit(pred, labels_orig_scale)
             if self.quad_sup:
+                loss_orig = loss
                 for i in range(len(pred_quad)):
                     loss_quad = self.crit(pred_quad[i], labels_scaled[i])
-                    loss = loss + loss_quad * (self.deep_sup_scale ** (i + 1))
+                    loss = loss + loss_quad * self.loss_weights[i]
+                    if self.adapt_weights:
+                        self.loss_weights[i] = self.running_avg_param * self.loss_weights[i] + \
+                        (1 - self.running_avg_param) * (loss_quad/loss_orig).data.cpu().numpy()
 
             acc = self.pixel_acc(pred, labels_orig_scale, self.quad_sup)
             return loss, acc

@@ -267,7 +267,7 @@ if __name__ == '__main__':
                         help='epochs to train for')
     parser.add_argument('--start_epoch', default=1, type=int,
                         help='epoch to start training. useful if continue from a checkpoint')
-    parser.add_argument('--epoch_iters', default=5000, type=int,
+    parser.add_argument('--epoch_iters', default=50, type=int,
                         help='iterations of each epoch (irrelevant to batch size)')
     parser.add_argument('--optim', default='SGD', help='optimizer')
     parser.add_argument('--lr_encoder', default=2e-2, type=float, help='LR')
@@ -279,7 +279,7 @@ if __name__ == '__main__':
     parser.add_argument('--weight_decay', default=1e-4, type=float,
                         help='weights regularizer')
     parser.add_argument('--deep_sup_scale', default=0.5, type=float,
-                        help='the weight for scaling lower resoultion losses')
+                        help='the weight for scaling lower resoultion losses (negative for adaptive)')
     parser.add_argument('--prop_weight', default=2.0, type=float,
                         help='the weight for scaling the propagate class')
     parser.add_argument('--enhance_weight', default=2.0, type=float,
@@ -288,7 +288,7 @@ if __name__ == '__main__':
                         help='fix bn params')
 
     # Data related arguments
-    parser.add_argument('--num_val', default=500, type=int,
+    parser.add_argument('--num_val', default=50, type=int,
                         help='number of images to evalutate')
     parser.add_argument('--num_class', default=150, type=int,
                         help='number of classes')
