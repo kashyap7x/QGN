@@ -283,7 +283,7 @@ if __name__ == '__main__':
                         help="which snapshot to load")
     parser.add_argument('--arch_encoder', default='resnet50',
                         help="architecture of net_encoder")
-    parser.add_argument('--arch_decoder', default='QGN',
+    parser.add_argument('--arch_decoder', default='QGN_dense_resnet34',
                         help="architecture of net_decoder")
     parser.add_argument('--fc_dim', default=2048, type=int,
                         help='number of features between encoder and decoder')

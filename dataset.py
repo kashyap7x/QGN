@@ -177,6 +177,7 @@ class TrainDataset(torchdata.Dataset):
                 seg_copy = segm.copy().astype(np.int)
                 seg_copy[segm == 0] = -1
                 seg_copy[segm == -1] = 0
+                seg_copy[segm == 255] = -1
                 segm = seg_copy
                 batch_segms[l][i][:segm.shape[0], :segm.shape[1]] = torch.from_numpy(segm.astype(np.int)).long()
 

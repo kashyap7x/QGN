@@ -50,7 +50,7 @@ class SegmentationModule(SegmentationModuleBase):
                 (pred, pred_quad) = self.decoder(fmap, labels_scaled)
             else:
                 pred = self.decoder(fmap)
-
+            
             loss = self.crit(pred, labels_orig_scale)
             if self.quad_sup:
                 for i in range(len(pred_quad)):
@@ -137,6 +137,11 @@ class ModelBuilder():
                 use_softmax=use_softmax)
         elif arch == 'ppm_bilinear':
             net_decoder = PPMBilinear(
+                num_class=num_class,
+                fc_dim=fc_dim,
+                use_softmax=use_softmax)
+        elif arch == 'aspp_bilinear':
+            net_decoder = ASPPBilinear(
                 num_class=num_class,
                 fc_dim=fc_dim,
                 use_softmax=use_softmax)
@@ -301,13 +306,13 @@ class PPMBilinear(nn.Module):
         for scale in pool_scales:
             self.ppm.append(nn.Sequential(
                 nn.AdaptiveAvgPool2d(scale),
-                nn.Conv2d(fc_dim, 512, kernel_size=1, bias=False),
-                SynchronizedBatchNorm2d(512),
+                nn.Conv2d(fc_dim, 256, kernel_size=1, bias=False),
+                SynchronizedBatchNorm2d(256),
                 nn.ReLU(inplace=True)
             ))
         self.ppm = nn.ModuleList(self.ppm)
 
-        self.conv_last = nn.Conv2d(fc_dim+len(pool_scales)*512,
+        self.conv_last = nn.Conv2d(fc_dim+len(pool_scales)*256,
                                     num_class, kernel_size=1)
 
     def forward(self, conv_out, segSize=None):
@@ -323,6 +328,63 @@ class PPMBilinear(nn.Module):
         ppm_out = torch.cat(ppm_out, 1)
 
         x = self.conv_last(ppm_out)
+
+        if self.use_softmax:  # is True during inference
+            x = nn.functional.upsample(x, size=segSize, mode='bilinear')
+            x = nn.functional.softmax(x, dim=1)
+        else:
+            if not self.context_mode:
+                x = nn.functional.log_softmax(x, dim=1)
+        return x
+        
+
+# atorus spatial pyramid pooling, bilinear upsample    
+class ASPPBilinear(nn.Module):
+    def __init__(self, num_class=150, fc_dim=2048,
+                 use_softmax=False, context_mode=False,
+                 dilate_scales=(6, 12, 18)):
+        super(ASPPBilinear, self).__init__()
+        self.use_softmax = use_softmax
+        self.context_mode = context_mode
+        
+        self.conv_1x1_1 = nn.Conv2d(fc_dim, 256, kernel_size=1)
+        self.bn_conv_1x1_1 = SynchronizedBatchNorm2d(256)
+
+        self.conv_3x3_1 = nn.Conv2d(fc_dim, 256, kernel_size=3, stride=1, padding=dilate_scales[0], dilation=dilate_scales[0])
+        self.bn_conv_3x3_1 = SynchronizedBatchNorm2d(256)
+
+        self.conv_3x3_2 = nn.Conv2d(fc_dim, 256, kernel_size=3, stride=1, padding=dilate_scales[1], dilation=dilate_scales[1])
+        self.bn_conv_3x3_2 = SynchronizedBatchNorm2d(256)
+
+        self.conv_3x3_3 = nn.Conv2d(fc_dim, 256, kernel_size=3, stride=1, padding=dilate_scales[2], dilation=dilate_scales[2])
+        self.bn_conv_3x3_3 = SynchronizedBatchNorm2d(256)
+
+        self.avg_pool = nn.AdaptiveAvgPool2d(1)
+
+        self.conv_1x1_2 = nn.Conv2d(fc_dim, 256, kernel_size=1)
+        self.bn_conv_1x1_2 = SynchronizedBatchNorm2d(256)
+
+        self.conv_1x1_3 = nn.Conv2d(1280, 256, kernel_size=1)
+        self.bn_conv_1x1_3 = SynchronizedBatchNorm2d(256)
+
+        self.conv_1x1_4 = nn.Conv2d(256, num_class, kernel_size=1)
+
+    def forward(self, feature_map, segSize=None):
+        feature_map_h = feature_map.size()[2]
+        feature_map_w = feature_map.size()[3]
+
+        out_1x1 = F.relu(self.bn_conv_1x1_1(self.conv_1x1_1(feature_map)))
+        out_3x3_1 = F.relu(self.bn_conv_3x3_1(self.conv_3x3_1(feature_map)))
+        out_3x3_2 = F.relu(self.bn_conv_3x3_2(self.conv_3x3_2(feature_map)))
+        out_3x3_3 = F.relu(self.bn_conv_3x3_3(self.conv_3x3_3(feature_map)))
+
+        out_img = self.avg_pool(feature_map)
+        out_img = F.relu(self.bn_conv_1x1_2(self.conv_1x1_2(out_img)))
+        out_img = F.upsample(out_img, size=(feature_map_h, feature_map_w), mode="bilinear")
+
+        out = torch.cat([out_1x1, out_3x3_1, out_3x3_2, out_3x3_3, out_img], 1)
+        out = F.relu(self.bn_conv_1x1_3(self.conv_1x1_3(out)))
+        x = self.conv_1x1_4(out)
 
         if self.use_softmax:  # is True during inference
             x = nn.functional.upsample(x, size=segSize, mode='bilinear')
@@ -428,40 +490,48 @@ class QuadNet(nn.Module):
 
 # QGN based on sparse transposed ResNet
 class QGN(nn.Module):
-    def __init__(self, arch, num_class=150, use_softmax=False, use_ppm=False):
+    def __init__(self, arch, num_class=150, use_softmax=False):
         super(QGN, self).__init__()
-        self.use_ppm = use_ppm
-        if use_ppm:
-            self.ppm_context = PPMBilinear(num_class=2048, context_mode=True)
-        if arch=='QGN_resnet34':
+        self.use_context = False
+        if arch.endswith('ppm'):
+            self.use_context = True
+            self.context = PPMBilinear(num_class=2048, context_mode=True)
+        elif arch.endswith('aspp'):
+            self.use_context = True
+            self.context = ASPPBilinear(num_class=2048, context_mode=True)
+            
+        if arch.startswith('QGN_resnet34'):
             self.orig_resnet = resnet.resnet34_transpose_sparse(num_classes=num_class+1)
-        elif arch=='QGN_dense_resnet34':
+        elif arch.startswith('QGN_dense_resnet34'):
             self.orig_resnet = resnet.resnet34_transpose(num_classes=num_class+1)
-        elif arch=='QGN_resnet50':
+        elif arch.startswith('QGN_resnet50'):
             self.orig_resnet = resnet.resnet50_transpose_sparse(num_classes=num_class+1)
-        elif arch=='QGN_dense_resnet50':
+        elif arch.startswith('QGN_dense_resnet50'):
             self.orig_resnet = resnet.resnet50_transpose(num_classes=num_class+1)
         else:
             raise Exception('Architecture undefined!')
         self.use_softmax = use_softmax
 
-    def forward(self, conv_out, labels_scaled=None, segSize=None):
-        if self.use_ppm:
-            x = self.ppm_context(conv_out)
+    def forward(self, conv_out, labels_scaled=None, segSize=None, switch_mode=False):
+        if self.use_context:
+            x = self.context(conv_out)
             conv_out[-1] = x
 
-        quad_preds = self.orig_resnet(conv_out, labels_scaled)
+        quad_preds = self.orig_resnet(conv_out, labels_scaled, switch_mode)
         x = quad_preds[-1]
 
         if self.use_softmax:  # is True during inference
-            masks = [(torch.argmax(out, dim=1)==0).unsqueeze(1).repeat(1,out.shape[1],1,1).type(out.dtype) for out in quad_preds]
-            for (i, mask) in enumerate(masks):
-                quad_preds[i] = (1 - mask) * quad_preds[i]
-                quad_preds[i] = nn.functional.upsample(quad_preds[i], size=segSize, mode='bilinear')
-                for j in range(i+1,len(masks)):
-                    mask = nn.functional.upsample(mask, scale_factor=2)
-                    quad_preds[j] = mask * quad_preds[j]
-            x = sum(quad_preds)
+            if switch_mode:
+                masks = [(torch.argmax(out, dim=1)==0).unsqueeze(1).repeat(1,out.shape[1],1,1).type(out.dtype) for out in quad_preds]
+                for (i, mask) in enumerate(masks):
+                    quad_preds[i] = (1 - mask) * quad_preds[i]
+                    quad_preds[i] = nn.functional.upsample(quad_preds[i], size=segSize, mode='bilinear')
+                    for j in range(i+1,len(masks)):
+                        mask = nn.functional.upsample(mask, scale_factor=2)
+                        quad_preds[j] = mask * quad_preds[j]
+                x = sum(quad_preds)
+            else:
+                x = nn.functional.upsample(x, size=segSize, mode='bilinear')
             x = nn.functional.softmax(x[:,1:,:,:], dim=1)
             return x
 

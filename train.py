@@ -149,13 +149,13 @@ def adjust_learning_rate(optimizers, cur_iter, args):
         param_group['lr'] = args.running_lr_decoder
 
 
-def adjust_crit_weights(nets, iou, args, enhance_weight = 2.0):
-    (net_encoder, net_decoder, crit) = nets
+def adjust_crit_weights(segmentation_module, iou, args, prop_weight):
     class_weight = np.ones([args.num_class], dtype=np.float32)
     med = np.median(iou)
-    class_weight[np.where(iou<=med)] = enhance_weight
-    crit_new = nn.NLLLoss(ignore_index=-1, weight=torch.from_numpy(class_weight))
-    return (net_encoder, net_decoder, crit_new)
+    class_weight[np.where(iou<=med)] = args.enhance_weight
+    if prop_weight:
+        class_weight = np.insert(class_weight, 0, args.prop_weight)
+    segmentation_module.module.crit = nn.NLLLoss(ignore_index=-1, weight=torch.from_numpy(class_weight).cuda())
 
 
 def main(args):
@@ -225,7 +225,8 @@ def main(args):
         iou = eval_train(args)
 
         # adaptive class weighting
-        nets = adjust_crit_weights(nets, iou, args)
+        adjust_crit_weights(segmentation_module, iou, args, args.arch_decoder.startswith('QGN_'))
+
 
     print('Training Done!')
 
@@ -240,7 +241,7 @@ if __name__ == '__main__':
                         help="a name for identifying the experiment")
     parser.add_argument('--arch_encoder', default='resnet50',
                         help="architecture of net_encoder")
-    parser.add_argument('--arch_decoder', default='QGN_resnet50',
+    parser.add_argument('--arch_decoder', default='QGN_dense_resnet34',
                         help="architecture of net_decoder")
     parser.add_argument('--weights_encoder', default='',
                         help="weights to finetune net_encoder")
@@ -277,8 +278,12 @@ if __name__ == '__main__':
                         help='momentum for sgd, beta1 for adam')
     parser.add_argument('--weight_decay', default=1e-4, type=float,
                         help='weights regularizer')
-    parser.add_argument('--deep_sup_scale', default=1, type=float,
+    parser.add_argument('--deep_sup_scale', default=0.5, type=float,
                         help='the weight for scaling lower resoultion losses')
+    parser.add_argument('--prop_weight', default=2.0, type=float,
+                        help='the weight for scaling the propagate class')
+    parser.add_argument('--enhance_weight', default=2.0, type=float,
+                        help='the weight for scaling the low-performance classes')
     parser.add_argument('--fix_bn', default=0, type=int,
                         help='fix bn params')
 
@@ -327,15 +332,13 @@ if __name__ == '__main__':
 
     args.id += '-' + str(args.arch_encoder)
     args.id += '-' + str(args.arch_decoder)
-    args.id += '-ngpus' + str(args.num_gpus)
     args.id += '-batchSize' + str(args.batch_size)
-    args.id += '-imgMaxSize' + str(args.imgMaxSize)
-    args.id += '-paddingConst' + str(args.padding_constant)
     args.id += '-LR_encoder' + str(args.lr_encoder)
     args.id += '-LR_decoder' + str(args.lr_decoder)
     args.id += '-epoch' + str(args.num_epoch)
-    args.id += '-decay' + str(args.weight_decay)
-    args.id += '-fixBN' + str(args.fix_bn)
+    args.id += '-lossScale' + str(args.deep_sup_scale)
+    args.id += '-classScale' + str(args.enhance_weight)
+
     print('Model ID: {}'.format(args.id))
 
     args.ckpt = os.path.join(args.ckpt, args.id)
