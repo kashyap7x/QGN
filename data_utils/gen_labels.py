@@ -56,7 +56,7 @@ def cur_key_to_last_key(key):
     return last_key
 
 
-def node_val_inter(raw_map, given_level, total_levels, key, last_map):
+def node_val_inter(raw_map, given_level, total_levels, key, last_map, return_255):
     '''
     Input:
             raw_map: original segmentation map
@@ -70,7 +70,10 @@ def node_val_inter(raw_map, given_level, total_levels, key, last_map):
     last_y = last_key[1]
     last_val = last_map[last_x,last_y]
     if last_val >= 0:
-        return last_val
+        if return_255:
+            return 255
+        else:
+            return last_val
     x = key[0]
     y = key[1]
     im_x = raw_map.shape[0]
@@ -100,7 +103,7 @@ def depth_sub(previous_map, current_map):
   	return current_map - previous_map
 
 
-def dense2quad(raw_map, num_levels=6):
+def dense2quad(raw_map, num_levels=6, return_255=False):
     '''
     raw_map: input is raw segmentation map
     out_map: output is quadtree output representation
@@ -119,7 +122,7 @@ def dense2quad(raw_map, num_levels=6):
         for x in range(0,level_res_x):
             for y in range(0,level_res_y):
         		    if given_level == 1: level_map[x,y] = node_val(raw_map, given_level, num_levels, (x,y))
-        		    else: level_map[x,y] = node_val_inter(raw_map, given_level, num_levels, (x,y), out_map[given_level-1])
+        		    else: level_map[x,y] = node_val_inter(raw_map, given_level, num_levels, (x,y), out_map[given_level-1], return_255)
         out_map[given_level] = level_map
     return out_map
 

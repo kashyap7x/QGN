@@ -437,14 +437,14 @@ class ResNetTranspose(nn.Module):
         )
         return layers
 
-    def forward(self, x, labels=None, switch_mode=False):
+    def forward(self, x, labels=None, sparse_mode=False):
         [in0, in1, in2, in3, in4] = x
         if labels:
             [lab0, lab1, lab2, lab3, lab4] = labels
         
         out6 = self.out6_conv(in4)
         
-        if switch_mode:
+        if sparse_mode:
             if labels:
                 mask4 = (lab4==0).unsqueeze(1).repeat(1,in4.shape[1],1,1).type(in4.dtype)
             else:
@@ -456,7 +456,7 @@ class ResNetTranspose(nn.Module):
         x = self.deconv1(skip4)
         out5 = self.out5_conv(x)
         
-        if switch_mode:
+        if sparse_mode:
             if labels:
                 mask3 = (lab3==0).unsqueeze(1).repeat(1,in3.shape[1],1,1).type(in3.dtype)
             else:
@@ -468,7 +468,7 @@ class ResNetTranspose(nn.Module):
         x = self.deconv2(x)
         out4 = self.out4_conv(x)
         
-        if switch_mode:
+        if sparse_mode:
             if labels:
                 mask2 = (lab2==0).unsqueeze(1).repeat(1,in2.shape[1],1,1).type(in2.dtype)
             else:
@@ -480,7 +480,7 @@ class ResNetTranspose(nn.Module):
         x = self.deconv3(x)
         out3 = self.out3_conv(x)
         
-        if switch_mode:
+        if sparse_mode:
             if labels:
                 mask1 = (lab1==0).unsqueeze(1).repeat(1,in1.shape[1],1,1).type(in1.dtype)
             else:
@@ -492,7 +492,7 @@ class ResNetTranspose(nn.Module):
         x = self.deconv4(x)
         out2 = self.out2_conv(x)
         
-        if switch_mode:
+        if sparse_mode:
             if labels:
                 mask0 = (lab0==0).unsqueeze(1).repeat(1,in0.shape[1],1,1).type(in0.dtype)
             else:
@@ -584,18 +584,19 @@ class ResNetTransposeSparse(nn.Module):
         )
         return layers
 
-    def forward(self, x, labels=None, switch_mode=False):
+    def forward(self, x, labels=None, sparse_mode=True):
         [in0, in1, in2, in3, in4] = x
         if labels:
             [lab0, lab1, lab2, lab3, lab4] = labels
         
         out6 = self.out6_conv(in4)
         
-        if labels:
-            mask4 = (lab4==0).unsqueeze(1).repeat(1,in4.shape[1],1,1).type(in4.dtype)
-        else:
-            mask4 = (torch.argmax(out6, dim=1)==0).unsqueeze(1).repeat(1,in4.shape[1],1,1).type(in4.dtype)
-        in4 = in4 * mask4
+        if sparse_mode:
+            if labels:
+                mask4 = (lab4==0).unsqueeze(1).repeat(1,in4.shape[1],1,1).type(in4.dtype)
+            else:
+                mask4 = (torch.argmax(out6, dim=1)==0).unsqueeze(1).repeat(1,in4.shape[1],1,1).type(in4.dtype)
+            in4 = in4 * mask4
 
         in4 = self.dense_to_sparse(in4)
         skip4 = self.skip4(in4)
@@ -603,45 +604,53 @@ class ResNetTransposeSparse(nn.Module):
 
         x = self.deconv1(skip4)
         out5 = self.sparse_to_dense(self.out5_conv(x))
-
-        if labels:
-            mask3 = (lab3==0).unsqueeze(1).repeat(1,in3.shape[1],1,1).type(in3.dtype)
-        else:
-            mask3 = (torch.argmax(out5, dim=1)==0).unsqueeze(1).repeat(1,in3.shape[1],1,1).type(in3.dtype)
-        in3 = in3 * mask3
+        
+        if sparse_mode:
+            if labels:
+                mask3 = (lab3==0).unsqueeze(1).repeat(1,in3.shape[1],1,1).type(in3.dtype)
+            else:
+                mask3 = (torch.argmax(out5, dim=1)==0).unsqueeze(1).repeat(1,in3.shape[1],1,1).type(in3.dtype)
+            in3 = in3 * mask3
+        
         in3 = self.dense_to_sparse(in3)
         x = self.add([self.skip3(in3),self.densify3(x)])
         # upsample 2
         x = self.deconv2(x)
         out4 = self.sparse_to_dense(self.out4_conv(x))
         
-        if labels:
-            mask2 = (lab2==0).unsqueeze(1).repeat(1,in2.shape[1],1,1).type(in2.dtype)
-        else:
-            mask2 = (torch.argmax(out4, dim=1)==0).unsqueeze(1).repeat(1,in2.shape[1],1,1).type(in2.dtype)
-        in2 = in2 * mask2
+        if sparse_mode:
+            if labels:
+                mask2 = (lab2==0).unsqueeze(1).repeat(1,in2.shape[1],1,1).type(in2.dtype)
+            else:
+                mask2 = (torch.argmax(out4, dim=1)==0).unsqueeze(1).repeat(1,in2.shape[1],1,1).type(in2.dtype)
+            in2 = in2 * mask2
+        
         in2 = self.dense_to_sparse(in2)
         x = self.add([self.skip2(in2),self.densify2(x)])
         # upsample 3
         x = self.deconv3(x)
         out3 = self.sparse_to_dense(self.out3_conv(x))
         
-        if labels:
-            mask1 = (lab1==0).unsqueeze(1).repeat(1,in1.shape[1],1,1).type(in1.dtype)
-        else:
-            mask1 = (torch.argmax(out3, dim=1)==0).unsqueeze(1).repeat(1,in1.shape[1],1,1).type(in1.dtype)
-        in1 = in1 * mask1
+        if sparse_mode:
+            if labels:
+                mask1 = (lab1==0).unsqueeze(1).repeat(1,in1.shape[1],1,1).type(in1.dtype)
+            else:
+                mask1 = (torch.argmax(out3, dim=1)==0).unsqueeze(1).repeat(1,in1.shape[1],1,1).type(in1.dtype)
+            in1 = in1 * mask1
+        
         in1 = self.dense_to_sparse(in1)
         x = self.add([self.skip1(in1),self.densify1(x)])
         # upsample 4
         x = self.deconv4(x)
         out2 = self.sparse_to_dense(self.out2_conv(x))
         
-        if labels:
-            mask0 = (lab0==0).unsqueeze(1).repeat(1,in0.shape[1],1,1).type(in0.dtype)
-        else:
-            mask0 = (torch.argmax(out2, dim=1)==0).unsqueeze(1).repeat(1,in0.shape[1],1,1).type(in0.dtype)
-        in0 = in0 * mask0
+        if sparse_mode:
+            if labels:
+                mask0 = (lab0==0).unsqueeze(1).repeat(1,in0.shape[1],1,1).type(in0.dtype)
+            else:
+                mask0 = (torch.argmax(out2, dim=1)==0).unsqueeze(1).repeat(1,in0.shape[1],1,1).type(in0.dtype)
+            in0 = in0 * mask0
+        
         in0 = self.dense_to_sparse(in0)
         x = self.add([self.skip0(in0),self.densify0(x)])
         # final

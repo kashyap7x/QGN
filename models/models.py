@@ -513,26 +513,30 @@ class QGN(nn.Module):
             
         if arch.startswith('QGN_resnet34'):
             self.orig_resnet = resnet.resnet34_transpose_sparse(num_classes=num_class+1)
+            self.sparse_mode = True
         elif arch.startswith('QGN_dense_resnet34'):
             self.orig_resnet = resnet.resnet34_transpose(num_classes=num_class+1)
+            self.sparse_mode = False
         elif arch.startswith('QGN_resnet50'):
             self.orig_resnet = resnet.resnet50_transpose_sparse(num_classes=num_class+1)
+            self.sparse_mode = True
         elif arch.startswith('QGN_dense_resnet50'):
             self.orig_resnet = resnet.resnet50_transpose(num_classes=num_class+1)
+            self.sparse_mode = False
         else:
             raise Exception('Architecture undefined!')
         self.use_softmax = use_softmax
 
-    def forward(self, conv_out, labels_scaled=None, segSize=None, switch_mode=False):
+    def forward(self, conv_out, labels_scaled=None, segSize=None):
         if self.use_context:
             x = self.context(conv_out)
             conv_out[-1] = x
 
-        quad_preds = self.orig_resnet(conv_out, labels_scaled, switch_mode)
+        quad_preds = self.orig_resnet(conv_out, labels_scaled, self.sparse_mode)
         x = quad_preds[-1]
 
         if self.use_softmax:  # is True during inference
-            if switch_mode:
+            if self.sparse_mode:
                 masks = [(torch.argmax(out, dim=1)==0).unsqueeze(1).repeat(1,out.shape[1],1,1).type(out.dtype) for out in quad_preds]
                 for (i, mask) in enumerate(masks):
                     quad_preds[i] = (1 - mask) * quad_preds[i]

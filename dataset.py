@@ -17,6 +17,7 @@ def round2nearest_multiple(x, p):
 class TrainDataset(torchdata.Dataset):
     def __init__(self, odgt, opt, max_sample=-1, batch_per_gpu=1, quadtree_levels=6):
         self.root_dataset = opt.root_dataset
+        self.return_255 = not(opt.arch_decoder.startswith('QGN_dense_'))
         self.imgSize = opt.imgSize
         self.imgMaxSize = opt.imgMaxSize
         self.random_flip = opt.random_flip
@@ -170,7 +171,7 @@ class TrainDataset(torchdata.Dataset):
             
             # convert to quadtree
             seg_copy = segm + 1
-            quadtree = dense2quad(seg_copy, self.quadtree_levels)
+            quadtree = dense2quad(seg_copy, self.quadtree_levels, self.return_255)
             
             for l in range(self.quadtree_levels):                        
                 segm = quadtree[self.quadtree_levels-l]
