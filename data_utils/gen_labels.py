@@ -111,13 +111,13 @@ def dense2quad(raw_map, num_levels=6, return_255=False):
     size_x = raw_map.shape[0]
     size_y = raw_map.shape[1]
     
-    init_res_x = int(size_x/np.power(2,num_levels))
-    init_res_y = int(size_y/np.power(2,num_levels))
-    
+    init_res_x = int(size_x/np.power(2,num_levels-1))
+    init_res_y = int(size_y/np.power(2,num_levels-1))
+
     out_map = {}
     for given_level in range(1,num_levels+1):
-        level_res_x = init_res_x*np.power(2,given_level)
-        level_res_y = init_res_y*np.power(2,given_level)
+        level_res_x = init_res_x*np.power(2,given_level-1)
+        level_res_y = init_res_y*np.power(2,given_level-1)
         level_map = np.zeros((level_res_x,level_res_y), dtype=np.float32)
         for x in range(0,level_res_x):
             for y in range(0,level_res_y):

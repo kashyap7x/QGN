@@ -195,7 +195,7 @@ class TrainDataset(torchdata.Dataset):
 
 
 class ValDataset(torchdata.Dataset):
-    def __init__(self, odgt, opt, max_sample=-1, start_idx=-1, end_idx=-1):
+    def __init__(self, odgt, opt, max_sample=-1, start_idx=-1, end_idx=-1, quadtree_levels=6):
         self.root_dataset = opt.root_dataset
         self.imgSize = opt.imgSize
         self.imgMaxSize = opt.imgMaxSize
@@ -205,7 +205,8 @@ class ValDataset(torchdata.Dataset):
             self.transform_dict = json.loads(opt.transform_dict)
         else:
             self.transform_dict = None
-
+        self.quadtree_levels = quadtree_levels
+        
         # mean and std
         self.img_transform = transforms.Compose([
             transforms.Normalize(mean=[102.9801, 115.9465, 122.7717], std=[1., 1., 1.])
@@ -230,11 +231,12 @@ class ValDataset(torchdata.Dataset):
         segm_path = os.path.join(self.root_dataset, this_record['fpath_segm'])
         img = imread(image_path, mode='RGB')
         img = img[:, :, ::-1] # BGR to RGB!!!
-        segm = imread(segm_path)
+        segm_ori = imread(segm_path)
 
         ori_height, ori_width, _ = img.shape
 
         img_resized_list = []
+        quadtree_resized_list = []
         for this_short_size in self.imgSize:
             # calculate target height and width
             scale = min(this_short_size / float(min(ori_height, ori_width)),
@@ -247,7 +249,7 @@ class ValDataset(torchdata.Dataset):
 
             # resize
             img_resized = cv2.resize(img.copy(), (target_width, target_height))
-
+            
             # image to float
             img_resized = img_resized.astype(np.float32)
             img_resized = img_resized.transpose((2, 0, 1))
@@ -255,8 +257,37 @@ class ValDataset(torchdata.Dataset):
 
             img_resized = torch.unsqueeze(img_resized, 0)
             img_resized_list.append(img_resized)
+            
+            # quadtree
+            segm_resize = imresize(segm_ori.copy(), (target_height, target_width), interp='nearest')
+            seg_copy = segm_resize.copy().astype(np.int)
+            
+            if self.transform_dict:
+                for k, v in self.transform_dict.items():
+                    seg_copy[segm == int(k)] = v
+                    segm = seg_copy
+            else:
+                segm = seg_copy - 1 # label from -1 to 149
+            
+            # convert to quadtree
+            seg_copy = segm + 1
+            quadtree = dense2quad(seg_copy, self.quadtree_levels)
+            inverted_quadtree = []
 
-        seg_copy = segm.copy().astype(np.int)
+            for l in range(self.quadtree_levels):                        
+                segm = quadtree[self.quadtree_levels-l]
+                seg_copy = segm.copy().astype(np.int)
+                seg_copy[segm == 0] = -1
+                seg_copy[segm == -1] = 0
+                seg_copy[segm == 255] = -1
+                segm = seg_copy
+                quadtree_level_l = torch.from_numpy(segm.astype(np.int)).long()
+                quadtree_level_l = torch.unsqueeze(quadtree_level_l, 0)
+                inverted_quadtree.append(quadtree_level_l)
+
+            quadtree_resized_list.append(inverted_quadtree)
+
+        seg_copy = segm_ori.copy().astype(np.int)
 
         if self.transform_dict:
             for k, v in self.transform_dict.items():
@@ -271,6 +302,7 @@ class ValDataset(torchdata.Dataset):
         output = dict()
         output['img_ori'] = img.copy()
         output['img_data'] = [x.contiguous() for x in img_resized_list]
+        output['quadtree'] = quadtree_resized_list
         output['seg_label'] = batch_segms.contiguous()
         output['info'] = this_record['fpath_img']
         return output

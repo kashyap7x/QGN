@@ -71,7 +71,11 @@ class SegmentationModule(SegmentationModuleBase):
             acc = self.pixel_acc(pred, labels_orig_scale, self.quad_sup)
             return loss, acc
         else: # inference
-            pred = self.decoder(self.encoder(inputs, return_feature_maps=True), segSize=segSize)
+            if 'qtree' in feed_dict:
+                labels_scaled = [feed_dict['qtree'][l].cuda() for l in range(1,6)]                
+            else:
+                labels_scaled = None
+            pred = self.decoder(self.encoder(inputs, return_feature_maps=True), labels_scaled, segSize=segSize)
             return pred
 
 
@@ -140,7 +144,10 @@ class ModelBuilder():
 
     def build_decoder(self, arch='quadnet',
                       fc_dim=512, num_class=150,
-                      weights='', use_softmax=False):
+                      weights='', use_softmax=False,
+                      sparse_mode=None):
+        if sparse_mode is None:
+            sparse_mode = not(arch.startswith('QGN_dense_'))
         if arch == 'c1_bilinear':
             net_decoder = C1Bilinear(
                 num_class=num_class,
@@ -166,7 +173,8 @@ class ModelBuilder():
             net_decoder = QGN(
                 arch=arch,
                 num_class=num_class,
-                use_softmax=use_softmax)
+                use_softmax=use_softmax,
+                sparse_mode=sparse_mode)
         else:
             raise Exception('Architecture undefined!')
 
@@ -501,7 +509,7 @@ class QuadNet(nn.Module):
 
 # QGN based on sparse transposed ResNet
 class QGN(nn.Module):
-    def __init__(self, arch, num_class=150, use_softmax=False):
+    def __init__(self, arch, num_class=150, use_softmax=False, sparse_mode=False):
         super(QGN, self).__init__()
         self.use_context = False
         if arch.endswith('ppm'):
@@ -510,19 +518,16 @@ class QGN(nn.Module):
         elif arch.endswith('aspp'):
             self.use_context = True
             self.context = ASPPBilinear(num_class=2048, context_mode=True)
-            
+        
+        self.sparse_mode = sparse_mode
         if arch.startswith('QGN_resnet34'):
             self.orig_resnet = resnet.resnet34_transpose_sparse(num_classes=num_class+1)
-            self.sparse_mode = True
         elif arch.startswith('QGN_dense_resnet34'):
             self.orig_resnet = resnet.resnet34_transpose(num_classes=num_class+1)
-            self.sparse_mode = False
         elif arch.startswith('QGN_resnet50'):
             self.orig_resnet = resnet.resnet50_transpose_sparse(num_classes=num_class+1)
-            self.sparse_mode = True
         elif arch.startswith('QGN_dense_resnet50'):
             self.orig_resnet = resnet.resnet50_transpose(num_classes=num_class+1)
-            self.sparse_mode = False
         else:
             raise Exception('Architecture undefined!')
         self.use_softmax = use_softmax
@@ -534,16 +539,20 @@ class QGN(nn.Module):
 
         quad_preds = self.orig_resnet(conv_out, labels_scaled, self.sparse_mode)
         x = quad_preds[-1]
-
         if self.use_softmax:  # is True during inference
             if self.sparse_mode:
-                masks = [(torch.argmax(out, dim=1)==0).unsqueeze(1).repeat(1,out.shape[1],1,1).type(out.dtype) for out in quad_preds]
+                if labels_scaled:
+                    masks = [(lab==0).unsqueeze(1).repeat(1,x.shape[1],1,1).type(x.dtype) for lab in labels_scaled]
+                    masks.reverse()
+                else:
+                    masks = [(torch.argmax(out, dim=1)==0).unsqueeze(1).repeat(1,x.shape[1],1,1).type(x.dtype) for out in quad_preds]
                 for (i, mask) in enumerate(masks):
                     quad_preds[i] = (1 - mask) * quad_preds[i]
                     quad_preds[i] = nn.functional.upsample(quad_preds[i], size=segSize, mode='bilinear')
-                    for j in range(i+1,len(masks)):
+                    for j in range(i+1,len(quad_preds)):
                         mask = nn.functional.upsample(mask, scale_factor=2)
                         quad_preds[j] = mask * quad_preds[j]
+                quad_preds[-1] = nn.functional.upsample(quad_preds[-1], size=segSize, mode='bilinear')
                 x = sum(quad_preds)
             else:
                 x = nn.functional.upsample(x, size=segSize, mode='bilinear')

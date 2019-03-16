@@ -51,15 +51,18 @@ def evaluate(segmentation_module, loader, args, dev_id, result_queue):
         seg_label = as_numpy(batch_data['seg_label'][0])
 
         img_resized_list = batch_data['img_data']
-
+        quadtree_resized_list = batch_data['quadtree']
+        
         with torch.no_grad():
             segSize = (seg_label.shape[0], seg_label.shape[1])
             pred = torch.zeros(1, args.num_class, segSize[0], segSize[1])
             pred = Variable(pred).cuda()
 
-            for img in img_resized_list:
+            for scale, img in enumerate(img_resized_list):
                 feed_dict = batch_data.copy()
                 feed_dict['img_data'] = img
+                if args.eval_mode == 'gt':
+                    feed_dict['qtree'] = quadtree_resized_list[scale]
                 del feed_dict['img_ori']
                 del feed_dict['info']
                 feed_dict = async_copy_to(feed_dict, dev_id)
@@ -102,11 +105,17 @@ def worker(args, dev_id, start_idx, end_idx, result_queue):
     net_encoder = builder.build_encoder(arch=args.arch_encoder,
                                         fc_dim=args.fc_dim,
                                         weights=args.weights_encoder)
+    if args.eval_mode == 'all':
+        sparse_mode = False
+    else:
+        sparse_mode = True
+        
     net_decoder = builder.build_decoder(arch=args.arch_decoder,
                                         fc_dim=args.fc_dim,
                                         num_class=args.num_class,
                                         weights=args.weights_decoder,
-                                        use_softmax=True)
+                                        use_softmax=True, 
+                                        sparse_mode=sparse_mode)
 
     crit = nn.NLLLoss(ignore_index=-1)
 
@@ -285,6 +294,8 @@ if __name__ == '__main__':
                         help="architecture of net_encoder")
     parser.add_argument('--arch_decoder', default='QGN_dense_resnet34',
                         help="architecture of net_decoder")
+    parser.add_argument('--eval_mode', default='all',
+                        help="propagation scheme for evaluation")
     parser.add_argument('--fc_dim', default=2048, type=int,
                         help='number of features between encoder and decoder')
 

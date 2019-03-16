@@ -3,15 +3,15 @@ import json
 from pathlib import Path
 
 
-cityscapes_root = '/home/selfdriving/datasets/cityscapes_full'
+cityscapes_root = '../../datasets/cityscapes_raw'
 train_odgt = Path('./data/train_cityscapes.odgt')
 val_odgt = Path('./data/validation_cityscapes.odgt')
 
 
 def make_CityScapes(mode, root, odgt):
-    mask_path = os.path.join('gtFine_trainvaltest', 'gtFine', mode)
+    mask_path = os.path.join('gtFine', mode)
     mask_postfix = '_gtFine_labelIds.png'
-    img_path = os.path.join('leftImg8bit_trainvaltest', 'leftImg8bit', mode)
+    img_path = os.path.join('leftImg8bit', mode)
     categories = os.listdir(os.path.join(root, img_path))
     with odgt.open(mode='w+') as fo:
         for c in categories:

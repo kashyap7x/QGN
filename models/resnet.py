@@ -441,7 +441,7 @@ class ResNetTranspose(nn.Module):
         [in0, in1, in2, in3, in4] = x
         if labels:
             [lab0, lab1, lab2, lab3, lab4] = labels
-        
+
         out6 = self.out6_conv(in4)
         
         if sparse_mode:
