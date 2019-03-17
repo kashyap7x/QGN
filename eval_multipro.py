@@ -67,7 +67,7 @@ def evaluate(segmentation_module, loader, args, dev_id, result_queue):
                 del feed_dict['info']
                 feed_dict = async_copy_to(feed_dict, dev_id)
 
-                # forward pass
+                # forward pass                
                 pred_tmp = segmentation_module(feed_dict, segSize=segSize)
                 pred = pred + pred_tmp / len(args.imgSize)
 

@@ -103,18 +103,26 @@ class TrainDataset(torchdata.Dataset):
                     self.imgMaxSize / max(img_height, img_width))
             img_resized_height, img_resized_width = img_height * this_scale, img_width * this_scale
             batch_resized_size[i, :] = img_resized_height, img_resized_width
+
         batch_resized_height = np.max(batch_resized_size[:, 0])
         batch_resized_width = np.max(batch_resized_size[:, 1])
 
         # Here we must pad both input image and segmentation map to size h' and w' so that p | h' and p | w'
         batch_resized_height = int(round2nearest_multiple(batch_resized_height, self.padding_constant))
         batch_resized_width = int(round2nearest_multiple(batch_resized_width, self.padding_constant))
-
-        batch_images = torch.zeros(self.batch_per_gpu, 3, batch_resized_height, batch_resized_width)
-        batch_segms = []
-        for l in range(self.quadtree_levels):
-            batch_segms.append(torch.zeros(self.batch_per_gpu, batch_resized_height // (2**l), \
-                                batch_resized_width // 2**l).long())
+        
+        if self.crop:
+            batch_images = torch.zeros(self.batch_per_gpu, 3, self.crop, self.crop)
+            batch_segms = []
+            for l in range(self.quadtree_levels):
+                batch_segms.append(torch.zeros(self.batch_per_gpu, self.crop // (2**l), \
+                                    self.crop // 2**l).long())
+        else:        
+            batch_images = torch.zeros(self.batch_per_gpu, 3, batch_resized_height, batch_resized_width)
+            batch_segms = []
+            for l in range(self.quadtree_levels):
+                batch_segms.append(torch.zeros(self.batch_per_gpu, batch_resized_height // (2**l), \
+                                    batch_resized_width // 2**l).long())
 
         for i in range(self.batch_per_gpu):
             this_record = batch_records[i]
@@ -141,8 +149,12 @@ class TrainDataset(torchdata.Dataset):
             segm = imresize(segm, (batch_resized_size[i, 0], batch_resized_size[i, 1]), interp='nearest')
 
             if self.crop:
-                x1 = np.random.randint(batch_resized_size[i, 1] - self.crop)
-                y1 = np.random.randint(batch_resized_size[i, 0] - self.crop)
+                x1 = (batch_resized_size[i, 1] - self.crop)
+                if x1 > 0:
+                    x1 = np.random.randint(x1)
+                y1 = (batch_resized_size[i, 0] - self.crop)
+                if y1 > 0:
+                    y1 = np.random.randint(y1)
                 img = img[y1: y1 + self.crop, x1: x1 + self.crop, :]
                 segm = segm[y1: y1 + self.crop, x1: x1 + self.crop]
 
@@ -264,7 +276,7 @@ class ValDataset(torchdata.Dataset):
             
             if self.transform_dict:
                 for k, v in self.transform_dict.items():
-                    seg_copy[segm == int(k)] = v
+                    seg_copy[segm_resize == int(k)] = v
                     segm = seg_copy
             else:
                 segm = seg_copy - 1 # label from -1 to 149
@@ -291,7 +303,7 @@ class ValDataset(torchdata.Dataset):
 
         if self.transform_dict:
             for k, v in self.transform_dict.items():
-                seg_copy[segm == int(k)] = v
+                seg_copy[segm_ori == int(k)] = v
                 segm = seg_copy
         else:
             segm = seg_copy - 1 # label from -1 to 149

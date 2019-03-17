@@ -289,24 +289,25 @@ class ResnetDilated(nn.Module):
 
 # last conv, bilinear upsample
 class C1Bilinear(nn.Module):
-    def __init__(self, num_class=150, fc_dim=2048, use_softmax=False):
+    def __init__(self, num_class=150, fc_dim=2048, use_softmax=False, trainScale=8):
         super(C1Bilinear, self).__init__()
         self.use_softmax = use_softmax
-
+        self.train_scale = trainScale
         self.cbr = conv3x3_bn_relu(fc_dim, fc_dim // 4, 1)
 
         # last conv
-        self.conv_last = nn.Conv2d(fc_dim // 4, num_class, 1, 1, 0)
+        self.conv_last = nn.Conv2d(fc_dim // 4, num_class+1, 1, 1, 0)
 
-    def forward(self, conv_out, segSize=None):
+    def forward(self, conv_out, labels_scaled=None, segSize=None):
         conv5 = conv_out[-1]
         x = self.cbr(conv5)
         x = self.conv_last(x)
 
         if self.use_softmax: # is True during inference
             x = nn.functional.upsample(x, size=segSize, mode='bilinear')
-            x = nn.functional.softmax(x, dim=1)
+            x = nn.functional.softmax(x[:,1:,:,:], dim=1)
         else:
+            x = nn.functional.upsample(x, scale_factor=self.train_scale, mode='bilinear')
             x = nn.functional.log_softmax(x, dim=1)
 
         return x
@@ -316,11 +317,11 @@ class C1Bilinear(nn.Module):
 class PPMBilinear(nn.Module):
     def __init__(self, num_class=150, fc_dim=2048,
                  use_softmax=False, context_mode=False,
-                 pool_scales=(1, 2, 3, 6)):
+                 pool_scales=(1, 2, 3, 6), trainScale=8):
         super(PPMBilinear, self).__init__()
         self.use_softmax = use_softmax
         self.context_mode = context_mode
-        
+        self.train_scale = trainScale
         self.ppm = []
         for scale in pool_scales:
             self.ppm.append(nn.Sequential(
@@ -334,7 +335,7 @@ class PPMBilinear(nn.Module):
         self.conv_last = nn.Conv2d(fc_dim+len(pool_scales)*256,
                                     num_class, kernel_size=1)
 
-    def forward(self, conv_out, segSize=None):
+    def forward(self, conv_out, labels_scaled=None, segSize=None):
         conv5 = conv_out[-1]
 
         input_size = conv5.size()
@@ -350,9 +351,10 @@ class PPMBilinear(nn.Module):
 
         if self.use_softmax:  # is True during inference
             x = nn.functional.upsample(x, size=segSize, mode='bilinear')
-            x = nn.functional.softmax(x, dim=1)
+            x = nn.functional.softmax(x[:,1:,:,:], dim=1)
         else:
             if not self.context_mode:
+                x = nn.functional.upsample(x, scale_factor=self.train_scale, mode='bilinear')
                 x = nn.functional.log_softmax(x, dim=1)
         return x
         
@@ -361,11 +363,11 @@ class PPMBilinear(nn.Module):
 class ASPPBilinear(nn.Module):
     def __init__(self, num_class=150, fc_dim=2048,
                  use_softmax=False, context_mode=False,
-                 dilate_scales=(6, 12, 18)):
+                 dilate_scales=(6, 12, 18), trainScale=8):
         super(ASPPBilinear, self).__init__()
         self.use_softmax = use_softmax
         self.context_mode = context_mode
-        
+        self.train_scale = trainScale
         self.conv_1x1_1 = nn.Conv2d(fc_dim, 256, kernel_size=1)
         self.bn_conv_1x1_1 = SynchronizedBatchNorm2d(256)
 
@@ -388,7 +390,7 @@ class ASPPBilinear(nn.Module):
 
         self.conv_1x1_4 = nn.Conv2d(256, num_class, kernel_size=1)
 
-    def forward(self, feature_map, segSize=None):
+    def forward(self, feature_map, labels_scaled=None, segSize=None):
         feature_map_h = feature_map.size()[2]
         feature_map_w = feature_map.size()[3]
 
@@ -407,9 +409,10 @@ class ASPPBilinear(nn.Module):
 
         if self.use_softmax:  # is True during inference
             x = nn.functional.upsample(x, size=segSize, mode='bilinear')
-            x = nn.functional.softmax(x, dim=1)
+            x = nn.functional.softmax(x[:,1:,:,:], dim=1)
         else:
             if not self.context_mode:
+                x = nn.functional.upsample(x, scale_factor=self.train_scale, mode='bilinear')
                 x = nn.functional.log_softmax(x, dim=1)
         return x
 
@@ -459,7 +462,7 @@ class QuadNet(nn.Module):
         self.quad_out = nn.ModuleList(self.quad_out)
 
 
-    def forward(self, conv_out, segSize=None):
+    def forward(self, conv_out, labels_scaled=None, segSize=None):
         conv5 = conv_out[-1]
 
         input_size = conv5.size()
