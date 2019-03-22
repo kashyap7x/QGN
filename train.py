@@ -149,7 +149,7 @@ def adjust_learning_rate(optimizers, cur_iter, args):
         param_group['lr'] = args.running_lr_decoder
 
 
-def adjust_crit_weights(segmentation_module, iou, args, prop_weight):
+def adjust_crit_weights(segmentation_module, iou, args, prop_weight=True):
     class_weight = np.ones([args.num_class], dtype=np.float32)
     med = np.median(iou)
     class_weight[np.where(iou<=med)] = args.enhance_weight
@@ -225,7 +225,7 @@ def main(args):
         iou = eval_train(args)
 
         # adaptive class weighting
-        adjust_crit_weights(segmentation_module, iou, args, args.arch_decoder.startswith('QGN_'))
+        adjust_crit_weights(segmentation_module, iou, args)
 
 
     print('Training Done!')
@@ -278,7 +278,7 @@ if __name__ == '__main__':
                         help='momentum for sgd, beta1 for adam')
     parser.add_argument('--weight_decay', default=1e-4, type=float,
                         help='weights regularizer')
-    parser.add_argument('--deep_sup_scale', default=0.5, type=float,
+    parser.add_argument('--deep_sup_scale', default=1.0, type=float,
                         help='the weight for scaling lower resoultion losses (negative for adaptive)')
     parser.add_argument('--prop_weight', default=2.0, type=float,
                         help='the weight for scaling the propagate class')

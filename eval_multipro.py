@@ -312,7 +312,7 @@ if __name__ == '__main__':
                         help='number of classes')
     parser.add_argument('--transform_dict', default=None,
                         help='dictionary to map label ids to train ids')
-    parser.add_argument('--imgSize', default=[450], nargs='+', type=int,
+    parser.add_argument('--imgSize', default=[300,375,450,525,600], nargs='+', type=int,
                         help='list of input image sizes.'
                              'for multiscale testing, e.g.  300 400 500 600')
     parser.add_argument('--imgMaxSize', default=1000, type=int,

@@ -515,12 +515,15 @@ class QGN(nn.Module):
     def __init__(self, arch, num_class=150, use_softmax=False, sparse_mode=False):
         super(QGN, self).__init__()
         self.use_context = False
+        self.use_skip = True
         if arch.endswith('ppm'):
             self.use_context = True
             self.context = PPMBilinear(num_class=2048, context_mode=True)
         elif arch.endswith('aspp'):
             self.use_context = True
             self.context = ASPPBilinear(num_class=2048, context_mode=True)
+        elif arch.endswith('noskip'):
+            self.use_skip = False
         
         self.sparse_mode = sparse_mode
         if arch.startswith('QGN_resnet34'):
@@ -540,7 +543,7 @@ class QGN(nn.Module):
             x = self.context(conv_out)
             conv_out[-1] = x
 
-        quad_preds = self.orig_resnet(conv_out, labels_scaled, self.sparse_mode)
+        quad_preds = self.orig_resnet(conv_out, labels_scaled, self.sparse_mode, self.use_skip)
         x = quad_preds[-1]
         if self.use_softmax:  # is True during inference
             if self.sparse_mode:

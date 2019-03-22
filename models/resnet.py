@@ -437,7 +437,7 @@ class ResNetTranspose(nn.Module):
         )
         return layers
 
-    def forward(self, x, labels=None, sparse_mode=False):
+    def forward(self, x, labels=None, sparse_mode=False, use_skip=True):
         [in0, in1, in2, in3, in4] = x
         if labels:
             [lab0, lab1, lab2, lab3, lab4] = labels
@@ -463,7 +463,9 @@ class ResNetTranspose(nn.Module):
                 mask3 = (torch.argmax(out5, dim=1)==0).unsqueeze(1).repeat(1,in3.shape[1],1,1).type(in3.dtype)
             in3 = in3 * mask3
 
-        x = x + self.skip3(in3)
+        if use_skip:
+            x = x + self.skip3(in3)
+        
         # upsample 2
         x = self.deconv2(x)
         out4 = self.out4_conv(x)
@@ -475,7 +477,9 @@ class ResNetTranspose(nn.Module):
                 mask2 = (torch.argmax(out4, dim=1)==0).unsqueeze(1).repeat(1,in2.shape[1],1,1).type(in2.dtype)
             in2 = in2 * mask2
 
-        x = x + self.skip2(in2)
+        if use_skip:
+            x = x + self.skip2(in2)
+        
         # upsample 3
         x = self.deconv3(x)
         out3 = self.out3_conv(x)
@@ -487,7 +491,9 @@ class ResNetTranspose(nn.Module):
                 mask1 = (torch.argmax(out3, dim=1)==0).unsqueeze(1).repeat(1,in1.shape[1],1,1).type(in1.dtype)
             in1 = in1 * mask1
 
-        x = x + self.skip1(in1)
+        if use_skip:
+            x = x + self.skip1(in1)
+        
         # upsample 4
         x = self.deconv4(x)
         out2 = self.out2_conv(x)
@@ -499,7 +505,10 @@ class ResNetTranspose(nn.Module):
                 mask0 = (torch.argmax(out2, dim=1)==0).unsqueeze(1).repeat(1,in0.shape[1],1,1).type(in0.dtype)
             in0 = in0 * mask0
 
-        x = x + self.skip0(in0)
+        
+        if use_skip:
+            x = x + self.skip0(in0)
+        
         # final
         x = self.final_conv(x)
         out1 = self.final_deconv(x)
@@ -584,7 +593,7 @@ class ResNetTransposeSparse(nn.Module):
         )
         return layers
 
-    def forward(self, x, labels=None, sparse_mode=True):
+    def forward(self, x, labels=None, sparse_mode=True, use_skip=True):
         [in0, in1, in2, in3, in4] = x
         if labels:
             [lab0, lab1, lab2, lab3, lab4] = labels
@@ -613,7 +622,10 @@ class ResNetTransposeSparse(nn.Module):
             in3 = in3 * mask3
         
         in3 = self.dense_to_sparse(in3)
-        x = self.add([self.skip3(in3),self.densify3(x)])
+        
+        if use_skip:
+            x = self.add([self.skip3(in3),self.densify3(x)])
+        
         # upsample 2
         x = self.deconv2(x)
         out4 = self.sparse_to_dense(self.out4_conv(x))
@@ -626,7 +638,10 @@ class ResNetTransposeSparse(nn.Module):
             in2 = in2 * mask2
         
         in2 = self.dense_to_sparse(in2)
-        x = self.add([self.skip2(in2),self.densify2(x)])
+        
+        if use_skip:
+            x = self.add([self.skip2(in2),self.densify2(x)])
+        
         # upsample 3
         x = self.deconv3(x)
         out3 = self.sparse_to_dense(self.out3_conv(x))
@@ -639,7 +654,10 @@ class ResNetTransposeSparse(nn.Module):
             in1 = in1 * mask1
         
         in1 = self.dense_to_sparse(in1)
-        x = self.add([self.skip1(in1),self.densify1(x)])
+        
+        if use_skip:
+            x = self.add([self.skip1(in1),self.densify1(x)])
+        
         # upsample 4
         x = self.deconv4(x)
         out2 = self.sparse_to_dense(self.out2_conv(x))
@@ -652,7 +670,10 @@ class ResNetTransposeSparse(nn.Module):
             in0 = in0 * mask0
         
         in0 = self.dense_to_sparse(in0)
-        x = self.add([self.skip0(in0),self.densify0(x)])
+        
+        if use_skip:
+            x = self.add([self.skip0(in0),self.densify0(x)])
+        
         # final
         x = self.final_conv(x)
         out1 = self.final_deconv(x)
